@@ -1,11 +1,68 @@
 #include <stdio.h>
+
+#ifdef _WIN32
 #include <windows.h>
-#include <math.h>
-#include <stdlib.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
+#endif
+
+#include <math.h>
+#include <stdlib.h>
 #include <node_api.h>
 
+#ifdef __APPLE__
+#include <unistd.h>
+#include <CoreAudio/CoreAudio.h>
+
+typedef enum {
+  	kAudioTypeUnknown = 0,
+    kAudioTypeInput   = 1,
+    kAudioTypeOutput  = 2,
+    kAudioTypeSystemOutput = 3
+} ASDeviceType;
+
+#endif
+
+#ifdef __APPLE__
+AudioDeviceID GetDefaultInputDevice()
+{
+    AudioDeviceID theAnswer = 0;
+    UInt32 theSize = sizeof(AudioDeviceID);
+    AudioObjectPropertyAddress theAddress = { kAudioHardwarePropertyDefaultInputDevice,
+                                              kAudioObjectPropertyScopeGlobal,
+                                              kAudioObjectPropertyElementMaster };
+
+    OSStatus theError = AudioObjectGetPropertyData(kAudioObjectSystemObject,
+                                                   &theAddress,
+                                                   0,
+                                                   NULL,
+                                                   &theSize,
+                                                   &theAnswer);
+    // handle errors
+
+    return theAnswer;
+}
+
+AudioDeviceID GetDefaultOutputDevice()
+{
+    AudioDeviceID theAnswer = 0;
+    UInt32 theSize = sizeof(AudioDeviceID);
+    AudioObjectPropertyAddress theAddress = { kAudioHardwarePropertyDefaultOutputDevice,
+                                              kAudioObjectPropertyScopeGlobal,
+                                              kAudioObjectPropertyElementMaster };
+
+    OSStatus theError = AudioObjectGetPropertyData(kAudioObjectSystemObject,
+                                                   &theAddress,
+                                                   0,
+                                                   NULL,
+                                                   &theSize,
+                                                   &theAnswer);
+    // handle errors
+    return theAnswer;
+}
+#endif
+
+#ifdef _WIN32
 IAudioEndpointVolume* getVolume(int mic){
   HRESULT hr;
   IMMDeviceEnumerator *enumerator = NULL;
@@ -23,6 +80,7 @@ IAudioEndpointVolume* getVolume(int mic){
   CoUninitialize();
   return volume;
 }
+#endif
 
 int *getArgs(napi_env env, napi_callback_info info){
   napi_value argv[2];
@@ -46,6 +104,7 @@ napi_value get(napi_env env, napi_callback_info info) {
   int *argv = getArgs(env, info);
   float volume = 0;
 
+#ifdef _WIN32
   IAudioEndpointVolume *tmp_volume = getVolume(argv[0]);
 
   if (tmp_volume == NULL) {
@@ -53,6 +112,22 @@ napi_value get(napi_env env, napi_callback_info info) {
   }
 
   tmp_volume->GetMasterVolumeLevelScalar(&volume);
+#elif defined(__APPLE__)
+    AudioDeviceID device = argv[0] == 0? GetDefaultOutputDevice() : GetDefaultInputDevice();
+    UInt32 theSize = sizeof(volume);
+    AudioObjectPropertyScope theScope = argv[0] == 1 ? kAudioDevicePropertyScopeInput : kAudioDevicePropertyScopeOutput;
+    AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyVolumeScalar,
+        theScope,
+        0 };
+    
+    OSStatus theError = AudioObjectGetPropertyData(device,
+                                                   &theAddress,
+                                                   0,
+                                                   NULL,
+                                                   &theSize,
+                                                   &volume);
+#endif
+
   return toValue(env, (int) round(volume*100));
 }
 
@@ -61,6 +136,7 @@ napi_value isMuted(napi_env env, napi_callback_info info) {
   int *argv = getArgs(env, info);
   int mute = 0;
 
+#ifdef _WIN32
   IAudioEndpointVolume *tmp_volume = getVolume(argv[0]);
 
   if (tmp_volume == NULL) {
@@ -68,6 +144,21 @@ napi_value isMuted(napi_env env, napi_callback_info info) {
   }
 
   tmp_volume->GetMute(&mute);
+#elif defined(__APPLE__)
+    AudioDeviceID device = argv[0] == 0? GetDefaultOutputDevice() : GetDefaultInputDevice();
+    UInt32 theSize = sizeof(mute);
+    AudioObjectPropertyScope theScope = argv[0] == 1 ? kAudioDevicePropertyScopeInput : kAudioDevicePropertyScopeOutput;
+    AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyMute,
+        theScope,
+        0 };
+    
+    OSStatus theError = AudioObjectGetPropertyData(device,
+                                                   &theAddress,
+                                                   0,
+                                                   NULL,
+                                                   &theSize,
+                                                   &mute);
+#endif
   return toValue(env, mute);
 
 }
@@ -75,6 +166,8 @@ napi_value isMuted(napi_env env, napi_callback_info info) {
 napi_value mute(napi_env env, napi_callback_info info) {
 
   int *argv = getArgs(env, info);
+
+#ifdef _WIN32
   IAudioEndpointVolume *tmp_volume = getVolume(argv[0]);
 
   if (tmp_volume == NULL) {
@@ -82,6 +175,22 @@ napi_value mute(napi_env env, napi_callback_info info) {
   }
 
   tmp_volume->SetMute(argv[1], NULL);
+#elif defined(__APPLE__)
+    AudioDeviceID device = argv[0] == 0? GetDefaultOutputDevice() : GetDefaultInputDevice();
+    UInt32 muted = argv[1];
+    UInt32 theSize = sizeof(muted);
+    AudioObjectPropertyScope theScope = argv[0] == 1 ? kAudioDevicePropertyScopeInput : kAudioDevicePropertyScopeOutput;
+    AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyMute,
+        theScope,
+        0 };
+    
+    OSStatus theError = AudioObjectSetPropertyData(device,
+                                                   &theAddress,
+                                                   0,
+                                                   NULL,
+                                                   theSize,
+                                                   &muted);
+#endif
   return toValue(env, 1);
 
 }
@@ -90,8 +199,8 @@ napi_value set(napi_env env, napi_callback_info info) {
 
   int *argv = getArgs(env, info);
   float newVolume = ((float)argv[0])/100.0f;
-  int mic = argv[1];
 
+#ifdef _WIN32
   IAudioEndpointVolume *tmp_volume = getVolume(mic);
 
   if (tmp_volume == NULL) {
@@ -99,6 +208,22 @@ napi_value set(napi_env env, napi_callback_info info) {
   }
 
   tmp_volume->SetMasterVolumeLevelScalar(newVolume, NULL);
+#elif defined(__APPLE__)
+    AudioDeviceID device = argv[1] == 0? GetDefaultOutputDevice() : GetDefaultInputDevice();
+    Float32 volume = newVolume;
+    UInt32 theSize = sizeof(volume);
+    AudioObjectPropertyScope theScope = argv[1] == 1 ? kAudioDevicePropertyScopeInput : kAudioDevicePropertyScopeOutput;
+    AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyVolumeScalar,
+        theScope,
+        0 };
+    
+    OSStatus theError = AudioObjectSetPropertyData(device,
+                                                   &theAddress,
+                                                   0,
+                                                   NULL,
+                                                   theSize,
+                                                   &volume);
+#endif
   return toValue(env, 1);
 
 }
