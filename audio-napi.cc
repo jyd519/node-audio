@@ -1,9 +1,8 @@
-#include <stdio.h>
-
 #ifdef _WIN32
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
+#include <atlbase.h>
 #endif
 
 #include <math.h>
@@ -63,26 +62,48 @@ AudioDeviceID GetDefaultOutputDevice()
 #endif
 
 #ifdef _WIN32
+class ComInitializer {
+  public:
+    HRESULT  hr;
+    ComInitializer() {
+      hr = CoInitializeEx(NULL, COINIT_MULTITHREADED );
+    }
+    ~ComInitializer() {
+      if (SUCCEEDED(hr)) { 
+        CoUninitialize();
+      }
+    }
+} ;
+
 IAudioEndpointVolume* getVolume(int mic){
   HRESULT hr;
   IMMDeviceEnumerator *enumerator = NULL;
   IAudioEndpointVolume *volume = NULL;
   IMMDevice *defaultDevice = NULL;
-  CoInitialize(NULL);
+ 
   hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_INPROC_SERVER, __uuidof(IMMDeviceEnumerator), (LPVOID *) &enumerator);
-  hr = enumerator->GetDefaultAudioEndpoint(mic ? eCapture : eRender, eConsole, &defaultDevice);
-  if (hr != 0) {
-    return volume;
+  if (FAILED(hr)) {
+    goto clean;
   }
+  hr = enumerator->GetDefaultAudioEndpoint(mic ? eCapture : eRender, eConsole, &defaultDevice);
+  if (FAILED(hr)) {
+    goto clean;
+   }
   hr = defaultDevice->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_INPROC_SERVER, NULL, (LPVOID *) &volume);
-  enumerator->Release();
-  defaultDevice->Release();
-  CoUninitialize();
+  if (FAILED(hr)) {
+    goto clean;
+  }
+
+clean:
+  if (enumerator) 
+    enumerator->Release();
+  if (defaultDevice)
+    defaultDevice->Release();
   return volume;
 }
 #endif
 
-int *getArgs(napi_env env, napi_callback_info info){
+int *getArgs(napi_env env, napi_callback_info info) {
   napi_value argv[2];
   size_t argc = 2;
   napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
@@ -100,13 +121,13 @@ napi_value toValue(napi_env env, int value){
 }
 
 napi_value get(napi_env env, napi_callback_info info) {
-
+ 
   int *argv = getArgs(env, info);
   float volume = 0;
 
 #ifdef _WIN32
-  IAudioEndpointVolume *tmp_volume = getVolume(argv[0]);
-
+  ComInitializer ole;
+  CComPtr<IAudioEndpointVolume> tmp_volume =  getVolume(argv[0]);
   if (tmp_volume == NULL) {
     return toValue(env, -1);
   }
@@ -137,7 +158,8 @@ napi_value isMuted(napi_env env, napi_callback_info info) {
   int mute = 0;
 
 #ifdef _WIN32
-  IAudioEndpointVolume *tmp_volume = getVolume(argv[0]);
+  ComInitializer ole;
+  CComPtr<IAudioEndpointVolume> tmp_volume = getVolume(argv[0]);
 
   if (tmp_volume == NULL) {
     return toValue(env, -999);
@@ -168,8 +190,8 @@ napi_value mute(napi_env env, napi_callback_info info) {
   int *argv = getArgs(env, info);
 
 #ifdef _WIN32
-  IAudioEndpointVolume *tmp_volume = getVolume(argv[0]);
-
+  ComInitializer ole;
+  CComPtr<IAudioEndpointVolume> tmp_volume = getVolume(argv[0]);
   if (tmp_volume == NULL) {
     return toValue(env, -1);
   }
@@ -199,17 +221,17 @@ napi_value set(napi_env env, napi_callback_info info) {
 
   int *argv = getArgs(env, info);
   float newVolume = ((float)argv[0])/100.0f;
-
+  int mic  = argv[1];
 #ifdef _WIN32
-  IAudioEndpointVolume *tmp_volume = getVolume(mic);
-
+  ComInitializer ole;
+  CComPtr<IAudioEndpointVolume> tmp_volume = getVolume(mic);
   if (tmp_volume == NULL) {
     return toValue(env, -1);
   }
 
   tmp_volume->SetMasterVolumeLevelScalar(newVolume, NULL);
-#elif defined(__APPLE__)
-    AudioDeviceID device = argv[1] == 0? GetDefaultOutputDevice() : GetDefaultInputDevice();
+#elif defined(__APPLE__ )
+    AudioDeviceID device = mic == 0? GetDefaultOutputDevice() : GetDefaultInputDevice();
     Float32 volume = newVolume;
     UInt32 theSize = sizeof(volume);
     AudioObjectPropertyScope theScope = argv[1] == 1 ? kAudioDevicePropertyScopeInput : kAudioDevicePropertyScopeOutput;
