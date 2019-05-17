@@ -119,7 +119,7 @@ napi_value get(napi_env env, napi_callback_info info) {
     AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyVolumeScalar,
         theScope,
         0 };
-    
+
     OSStatus theError = AudioObjectGetPropertyData(device,
                                                    &theAddress,
                                                    0,
@@ -151,7 +151,7 @@ napi_value isMuted(napi_env env, napi_callback_info info) {
     AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyMute,
         theScope,
         0 };
-    
+
     OSStatus theError = AudioObjectGetPropertyData(device,
                                                    &theAddress,
                                                    0,
@@ -183,7 +183,7 @@ napi_value mute(napi_env env, napi_callback_info info) {
     AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyMute,
         theScope,
         0 };
-    
+
     OSStatus theError = AudioObjectSetPropertyData(device,
                                                    &theAddress,
                                                    0,
@@ -216,7 +216,7 @@ napi_value set(napi_env env, napi_callback_info info) {
     AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyVolumeScalar,
         theScope,
         0 };
-    
+
     OSStatus theError = AudioObjectSetPropertyData(device,
                                                    &theAddress,
                                                    0,
