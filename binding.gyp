@@ -21,6 +21,17 @@
       }
       ],
     ]
+  },
+  {
+    'target_name': 'action_after_build',
+    'type': 'none',
+    'dependencies': [ 'audio' ],
+    'copies': [
+      {
+        'files': [ '<(PRODUCT_DIR)/audio.node' ],
+        'destination': '<(module_root_dir)/<(target_arch)'
+      }
+    ]
   }
   ]
 }

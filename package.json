@@ -5,7 +5,12 @@
   "main": "dist/index.js",
   "scripts": {
     "test": "npm i && node sample",
-    "babel": "npx babel src --out-dir dist"
+    "babel": "npx babel src --out-dir dist",
+    "build": "node-gyp build",
+    "debug": "node-gyp --debug configure build",
+    "release": "node-gyp configure rebuild",
+    "joytest": "node-gyp rebuild",
+    "joytest32": "node-gyp rebuild --arch=ia32"
   },
   "author": "Francesco Cannizzaro <francescosaverio.cannizzaro@gmail.com>",
   "license": "MIT",
