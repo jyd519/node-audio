@@ -1,4 +1,4 @@
-const addon = require('../x64/audio.node');
+const addon = require(process.arch == "ia32"? '../ia32/audio.node' : '../x64/audio.node');
 
 it('fixup_webm sync', () => {
   let r = addon.fixup_webm(`${__dirname}/test.webm`, './a.webm');

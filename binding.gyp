@@ -29,13 +29,10 @@
       {
         'defines': [
         ],
-        'include_dirs': ['<(libwebm_root)'],
+        'include_dirs': ['<(libwebm_root)', '.'],
         'link_settings': {
           'libraries': [
-            '-lole32', 
-            '-loleaut32',
-            '-lwebm', 
-            '-L<(libwebm_root)/lib',
+            '<(libwebm_root)\\lib\\libwebm.lib',
           ]
        },
       }
