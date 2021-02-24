@@ -52,7 +52,6 @@
         'include_dirs': ['<(libwebm_root)'],
         'link_settings': {
           'libraries': [
-            '-framework', 'CoreAudio',
             '-lwebm', 
             '-L<(libwebm_root)/lib',
           ]
@@ -69,10 +68,7 @@
         'include_dirs': ['<(libwebm_root)'],
         'link_settings': {
           'libraries': [
-            '-lole32', 
-            '-loleaut32',
-            '-lwebm', 
-            '-L<(libwebm_root)/lib',
+            '<(libwebm_root)\\lib\\libwebm.lib',
           ]
        },
       }
@@ -83,11 +79,23 @@
     'target_name': 'action_after_build',
     'type': 'none',
     'dependencies': [ 'audio', 'webm' ],
-    'copies': [
-      {
-        'files': [ '<(PRODUCT_DIR)/audio.node', '<(PRODUCT_DIR)/webm.dylib'  ],
-        'destination': '<(module_root_dir)/<(target_arch)'
-      }
+    "conditions": [
+       ['OS=="mac"', {
+          'copies': [
+            {
+              'files': [ '<(PRODUCT_DIR)/audio.node', '<(PRODUCT_DIR)/webm.dylib'  ],
+              'destination': '<(module_root_dir)/<(target_arch)'
+            }
+          ]
+       }],
+       ['OS=="win"', {
+          'copies': [
+              {
+              'files': [ '<(PRODUCT_DIR)/audio.node', '<(PRODUCT_DIR)/webm.dll'  ],
+              'destination': '<(module_root_dir)/<(target_arch)'
+              }
+          ]
+       }],
     ]
   }
   ]
