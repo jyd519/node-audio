@@ -11,6 +11,8 @@
 #include <memory>
 #include <string>
 
+#include "webm_muxer.h"
+
 // libwebm common includes.
 #include "common/file_util.h"
 #include "common/hdr_util.h"
