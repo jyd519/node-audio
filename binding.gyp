@@ -1,6 +1,6 @@
 {
   "variables": {
-    "libwebm_root%": "",
+    "libwebm_root%": "/root/works/libwebm",
   },
   "targets": [
   {
@@ -12,7 +12,7 @@
         'defines': [
           '__MACOSX_CORE__'
         ],
-        'include_dirs': ['<(libwebm_root)'],
+        'include_dirs': ['<(libwebm_root)', '.'],
         'link_settings': {
           'libraries': [
             '-framework', 'CoreAudio',
@@ -35,6 +35,18 @@
             '<(libwebm_root)\\lib\\libwebm.lib',
           ]
        },
+      }
+      ],
+      ['OS=="linux"',
+      {
+        'include_dirs': ['<(libwebm_root)', '.'],
+        'link_settings': {
+          'libraries': [
+            '-lwebm', 
+            '-lstdc++',
+            '-L<(libwebm_root)/build3',
+          ]
+        }
       }
       ],
     ]
@@ -71,6 +83,18 @@
             '<(libwebm_root)\\lib\\libwebm.lib',
           ]
        },
+      }
+      ],
+      ['OS=="linux"',
+      {
+        'include_dirs': ['<(libwebm_root)', '.'],
+        'link_settings': {
+          'libraries': [
+            '-lwebm', 
+            '-lstdc++',
+            '-L<(libwebm_root)/build3',
+          ]
+        }
       }
       ],
     ]
