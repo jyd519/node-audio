@@ -8,6 +8,7 @@
     "babel": "npx babel src --out-dir dist",
     "build": "node-gyp build",
     "debug": "node-gyp --debug configure build",
+    "config": "node-gyp configure",
     "release": "node-gyp configure rebuild",
     "joytest": "node-gyp rebuild",
     "joytest32": "node-gyp rebuild --arch=ia32"
@@ -37,5 +38,6 @@
     "@babel/runtime": "^7.12.13",
     "babel-jest": "^26.6.3",
     "jest": "^26.6.3"
-  }
+  },
+  "dependencies": {}
 }

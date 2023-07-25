@@ -1,6 +1,8 @@
 {
   "variables": {
-    "libwebm_root%": "/root/works/libwebm",
+    "libwebm_root%": "/opt/works/libwebm",
+    "libwebm_lib_path%": "/opt/works/libwebm",
+    "targetarch%": "amd64",
   },
   "targets": [
   {
@@ -41,12 +43,24 @@
       {
         'include_dirs': ['<(libwebm_root)', '.'],
         'link_settings': {
+          'ldflags': [
+             "-Wl,-rpath,'$$ORIGIN'"
+           ],
           'libraries': [
             '-lwebm', 
+            '-lasound',
             '-lstdc++',
-            '-L<(libwebm_root)/build3',
+            '-L<(libwebm_lib_path)',
           ]
         }
+      }
+      ],
+      ['OS=="linux" and targetarch=="arm64"',
+      {
+        'ldflags':  [
+          '--sysroot',
+          '/var/ata/electron/src/build/linux/debian_sid_arm64-sysroot/'
+        ],
       }
       ],
     ]
@@ -90,9 +104,9 @@
         'include_dirs': ['<(libwebm_root)', '.'],
         'link_settings': {
           'libraries': [
+            '-L<(libwebm_lib_path)',
             '-lwebm', 
             '-lstdc++',
-            '-L<(libwebm_root)/build3',
           ]
         }
       }
