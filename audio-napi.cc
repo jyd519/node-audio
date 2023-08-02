@@ -131,20 +131,19 @@ clean:
 const int DEV_PLAYBACK = 0;
 const int DEV_CAPTURE = 1;
 
-static int alsamixer_gethandle(const char *cardname, snd_mixer_t **handle)
-{
-	int err;
-	if ((err = snd_mixer_open(handle, 0)) < 0) {
+static int alsamixer_gethandle(const char *cardname, snd_mixer_t **handle) {
+  int err;
+  if ((err = snd_mixer_open(handle, 0)) < 0) {
     LOG("snd_mixer_open failed: %d\n", err);
-		return err;
+    return err;
   }
 
-	if ((err = snd_mixer_attach(*handle, cardname)) >= 0 &&
-		(err = snd_mixer_selem_register(*handle, NULL, NULL)) >= 0 &&
-		(err = snd_mixer_load(*handle)) >= 0)
-		return 0;
-	snd_mixer_close(*handle);
-	return err;
+  if ((err = snd_mixer_attach(*handle, cardname)) >= 0 &&
+      (err = snd_mixer_selem_register(*handle, NULL, NULL)) >= 0 &&
+      (err = snd_mixer_load(*handle)) >= 0)
+    return 0;
+  snd_mixer_close(*handle);
+  return err;
 }
 
 bool getAlsaMasterVolume(int dev, int *volume) {
@@ -177,7 +176,8 @@ bool getAlsaMasterVolume(int dev, int *volume) {
                                             &value)) {
       goto exit;
     }
-    LOG("getAlsaMasterVolume : max: %ld, min=%ld, val = %ld, %f\n", max, min, value,  (value - min) * 100.0 / (max - min));
+    LOG("getAlsaMasterVolume : max: %ld, min=%ld, val = %ld, %f\n", max, min,
+        value, (value - min) * 100.0 / (max - min));
     *volume = round((value - min) * 100.0 / (max - min));
   } else {
     if (snd_mixer_selem_get_capture_volume_range(elem, &min, &max) < 0) {
@@ -188,7 +188,8 @@ bool getAlsaMasterVolume(int dev, int *volume) {
                                            &value) < 0) {
       goto exit;
     }
-    LOG("getAlsaMasterVolume : max: %ld, min=%ld, val = %ld, %f\n", max, min, value,  (value - min) * 100.0 / (max - min));
+    LOG("getAlsaMasterVolume : max: %ld, min=%ld, val = %ld, %f\n", max, min,
+        value, (value - min) * 100.0 / (max - min));
     *volume = round((value - min) * 100.0 / (max - min));
   }
 
@@ -226,16 +227,20 @@ bool setAlsaMasterVolume(int dev, float volume) {
     if (snd_mixer_selem_get_playback_volume_range(elem, &min, &max) < 0) {
       goto exit;
     }
-    LOG("setAlsaMasterVolume : max: %ld, min=%ld, val = %d\n", max, min, int(volume * (max - min) + min));
-    if (snd_mixer_selem_set_playback_volume_all(elem, int(volume * (max - min) + min)) < 0) {
+    LOG("setAlsaMasterVolume : max: %ld, min=%ld, val = %d\n", max, min,
+        int(volume * (max - min) + min));
+    if (snd_mixer_selem_set_playback_volume_all(
+            elem, int(volume * (max - min) + min)) < 0) {
       goto exit;
     }
   } else {
     if (snd_mixer_selem_get_capture_volume_range(elem, &min, &max) < 0) {
       goto exit;
     }
-    LOG("setAlsaMasterVolume : max: %ld, min=%ld, val = %d\n", max, min, int(volume * (max - min) + min));
-    if (snd_mixer_selem_set_capture_volume_all(elem, int(volume * (max - min) + min))) {
+    LOG("setAlsaMasterVolume : max: %ld, min=%ld, val = %d\n", max, min,
+        int(volume * (max - min) + min));
+    if (snd_mixer_selem_set_capture_volume_all(
+            elem, int(volume * (max - min) + min))) {
       goto exit;
     }
   }
@@ -279,7 +284,7 @@ bool getMuteState(int dev, bool *muted) {
         LOG("%s", "Can't get playback switch");
         goto exit;
       }
-    	/* Value returned: 0 = muted, 1 = not muted */
+      /* Value returned: 0 = muted, 1 = not muted */
       *muted = value == 0 ? true : false;
     }
   } else {
@@ -292,9 +297,8 @@ bool getMuteState(int dev, bool *muted) {
       if (snd_mixer_selem_get_capture_switch(elem, channel, &value) < 0) {
         LOG("%s\n", "Can't get capture switch");
         goto exit;
-      
       }
-    	/* Value returned: 0 = muted, 1 = not muted */
+      /* Value returned: 0 = muted, 1 = not muted */
       *muted = value == 0 ? true : false;
     }
   }
@@ -313,7 +317,7 @@ bool setMuteState(int dev, bool muted) {
   bool success = false;
 
   /* Value to set: 0 = muted, 1 = not muted */
-	int value = muted ? 0 : 1;
+  int value = muted ? 0 : 1;
 
   if (alsamixer_gethandle(card, &handle) < 0) {
     return false;
@@ -572,19 +576,17 @@ static void ExecuteWork(napi_env env, void *data) {
 
 // This function runs on the main thread after `ExecuteWork` exits.
 static void WorkComplete(napi_env env, napi_status status, void *data) {
-  if (status != napi_ok) {
-    return;
-  }
-
   fixup_webm_work_t *work = (fixup_webm_work_t *)data;
 
-  napi_value res = 0;
-  napi_create_int32(env, work->errcode, &res);
+  if (status != napi_cancelled) {
+    napi_value res = 0;
+    napi_create_int32(env, work->errcode, &res);
 
-  CHECK(napi_resolve_deferred(env, work->deferred, res) == napi_ok);
+    CHECK(napi_resolve_deferred(env, work->deferred, res) == napi_ok);
 
-  // Clean up the work item associated with this run.
-  CHECK(napi_delete_async_work(env, work->work) == napi_ok);
+    // Clean up the work item associated with this run.
+    CHECK(napi_delete_async_work(env, work->work) == napi_ok);
+  }
 
   delete work;
 }
