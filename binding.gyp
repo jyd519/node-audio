@@ -34,7 +34,7 @@
         'include_dirs': ['<(libwebm_root)', '.'],
         'link_settings': {
           'libraries': [
-            '<(libwebm_root)\\lib\\libwebm.lib',
+            '<(libwebm_lib)\\libwebm.lib',
           ]
        },
       }
@@ -79,7 +79,7 @@
         'link_settings': {
           'libraries': [
             '-lwebm', 
-            '-L<(libwebm_root)/lib',
+            '-L<(libwebm_lib)',
           ]
         },
         'xcode_settings': {
@@ -94,7 +94,7 @@
         'include_dirs': ['<(libwebm_root)'],
         'link_settings': {
           'libraries': [
-            '<(libwebm_root)\\lib\\libwebm.lib',
+            '<(libwebm_lib)\\libwebm.lib',
           ]
        },
       }
