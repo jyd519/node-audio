@@ -42,3 +42,4 @@ jspm_packages
 /build2
 /build32
 /build64
+/test
