@@ -1,29 +1,21 @@
 {
-  "name": "win-audio",
+  "name": "node-audio",
   "version": "2.0.1",
-  "description": "Get, Set and Watch Speaker/Microphone Volume on Windows",
-  "main": "dist/index.js",
+  "description": "audio wrapper for node.js",
+  "main": "index.js",
   "scripts": {
     "test": "jest",
-    "babel": "npx babel src --out-dir dist",
-    "build": "node-gyp build",
+    "build": "cmake-js compile",
+    "x64": "cmake-js rebuild -a x64 -O x64build",
+    "ia32": "cmake-js rebuild -a ia32 -O ia32build",
+
     "debug": "node-gyp --debug configure build",
     "config": "node-gyp configure",
     "release": "node-gyp configure rebuild",
     "joytest": "node-gyp rebuild",
     "joytest32": "node-gyp rebuild --arch=ia32"
   },
-  "author": "Francesco Cannizzaro <francescosaverio.cannizzaro@gmail.com>",
-  "license": "MIT",
-  "gypfile": true,
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fcannizzaro/win-audio.git"
-  },
-  "bugs": {
-    "url": "https://github.com/fcannizzaro/win-audio/issues"
-  },
-  "homepage": "https://github.com/fcannizzaro/win-audio#readme",
+  "author": "jiyongdong@ata.net.cn",
   "keywords": [
     "audio",
     "microphone",
@@ -39,5 +31,8 @@
     "babel-jest": "^26.6.3",
     "jest": "^26.6.3"
   },
-  "dependencies": {}
+  "dependencies": {
+    "cmake-js": "^7.3.0",
+    "node-addon-api": "^8.0.0"
+  }
 }
