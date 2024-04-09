@@ -21,7 +21,7 @@ extern "C" {
 
 #include <memory>
 
-// Input: buffer/filename
+// Input: buffer/filename, "video"/"audio" (default)
 // Output: {status, duration}
 napi_value get_audio_duration(napi_env env, napi_callback_info info) {
   size_t argc = 2;
@@ -34,6 +34,7 @@ napi_value get_audio_duration(napi_env env, napi_callback_info info) {
   int duration = 0;
   bool is_buffer;
   void *data;
+  enum AVMediaType media = AVMEDIA_TYPE_AUDIO;
   size_t length;
 
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
@@ -57,10 +58,18 @@ napi_value get_audio_duration(napi_env env, napi_callback_info info) {
     }
   }
 
+  if (argc > 1) {
+    std::string type;
+    get_utf8_string(env, argv[1], &type);
+    if (type == "video") {
+      media = AVMEDIA_TYPE_VIDEO;
+    }
+  }
+
   if (is_buffer) {
-    r = ff_get_av_duration_buffer((const uint8_t *)data, length, AVMEDIA_TYPE_AUDIO, &duration);
+    r = ff_get_av_duration_buffer((const uint8_t *)data, length, media, &duration);
   } else {
-    r = ff_get_av_duration(in.c_str(), AVMEDIA_TYPE_AUDIO, &duration);
+    r = ff_get_av_duration(in.c_str(), media, &duration);
   }
 
   napi_value v_retcode, v_duration;
@@ -255,34 +264,33 @@ Napi::Value record_screen(const Napi::CallbackInfo &info) {
     Napi::TypeError::New(env, "Wrong number of arguments").ThrowAsJavaScriptException();
     return env.Null();
   }
-  int loglevel = AV_LOG_ERROR;
   auto filepath = info[0].As<Napi::String>().Utf8Value();
   auto capturer = std::make_shared<ScreenCapturer>(filepath);
   if (info.Length() > 1) {
     auto opts = info[1].As<Napi::Object>();
-    if (opts.Has("loglevel")) {
-      loglevel = opts.Get("loglevel").As<Napi::Number>().Int32Value();
-    }
     if (opts.Has("quality")) {
       capturer->set_quality(opts.Get("quality").As<Napi::Number>().Int32Value());
+      opts.Delete("quality");
     }
     if (opts.Has("fps")) {
       capturer->set_fps(opts.Get("fps").As<Napi::Number>().Int32Value());
+      opts.Delete("fps");
     }
-    if (opts.Has("quality")) {
-      capturer->set_quality(opts.Get("quality").As<Napi::Number>().Int32Value());
-    }
-    if (opts.Has("frag_duration")) {
-      capturer->set_movflags("frag_keyframe+empty_moov");
-      capturer->set_frag_duration(opts.Get("frag_duration").As<Napi::Number>().Int64Value() * 1000000);
+    if (opts.Has("gop")) {
+      capturer->set_gop(opts.Get("gop").As<Napi::Number>().Int32Value());
+      opts.Delete("gop");
     }
     if (opts.Has("width") && opts.Has("height")) {
       capturer->set_size(opts.Get("width").As<Napi::Number>().Int32Value(),
                          opts.Get("height").As<Napi::Number>().Int32Value());
+      opts.Delete("width");
+      opts.Delete("height");
     }
-    if (opts.Has("offsetx") && opts.Has("offsety")) {
-      capturer->set_offset(opts.Get("offsetx").As<Napi::Number>().Int32Value(),
-                           opts.Get("offsety").As<Napi::Number>().Int32Value());
+
+    auto names = opts.GetPropertyNames().As<Napi::Array>();
+    for (int i = 0; i < names.Length(); i++) {
+      auto name = names.Get(i).ToString().Utf8Value();
+      capturer->set_option(name, opts.Get(name).ToString().Utf8Value());
     }
   }
 
@@ -300,7 +308,6 @@ Napi::Value record_screen(const Napi::CallbackInfo &info) {
   result.AddFinalizer([c = capturer](Napi::Env env, int *ptr) { c->stop(); }, (int *)0);
   return result;
 }
-
 
 Napi::Value combine(const Napi::CallbackInfo &info) {
   auto env = info.Env();

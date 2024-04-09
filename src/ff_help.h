@@ -1,7 +1,5 @@
 #pragma once
 
-#include <libavutil/avutil.h>
-
 #include <stdarg.h>
 #include <stdint.h>
 
@@ -11,6 +9,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#include <libavutil/avutil.h>
 
 #ifndef EXPORT_AVHELP_API
 // https://ffmpeg.org/doxygen/trunk/log_8h_source.html

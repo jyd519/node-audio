@@ -8,9 +8,11 @@
 #include <libavutil/avutil.h>
 #include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
+#include "libavutil/log.h"
 
 #include "ff_help.h"
 #include "buffer_io.h"
+
 
 static int _get_audio_volume(AVFormatContext *formatContext, int64_t start,
                              int64_t duration, float *max_volume,
@@ -61,7 +63,7 @@ static void print_stats(VolDetectContext *vd) {
   for (i = 0; i < 0x10000; i++)
     nb_samples += vd->histogram[i];
 
-  printf("n_samples: %" PRId64 "\n", nb_samples);
+  av_log(NULL, AV_LOG_INFO, "n_samples: %" PRId64 "", nb_samples);
   if (!nb_samples)
     return;
 
@@ -78,20 +80,20 @@ static void print_stats(VolDetectContext *vd) {
     return;
   power = (power + nb_samples_shift / 2) / nb_samples_shift;
   assert(power <= 0x8000 * 0x8000);
-  printf("mean_volume: %.1f dB\n", -logdb(power));
+  av_log(NULL, AV_LOG_INFO, "mean_volume: %.1f dB", -logdb(power));
 
   max_volume = 0x8000;
   while (max_volume > 0 && !vd->histogram[0x8000 + max_volume] &&
          !vd->histogram[0x8000 - max_volume])
     max_volume--;
-  printf("max_volume: %.1f dB\n", -logdb(max_volume * max_volume));
+  av_log(NULL, AV_LOG_INFO, "max_volume: %.1f dB", -logdb(max_volume * max_volume));
 
   for (i = 0; i < 0x10000; i++)
     histdb[(int)logdb((i - 0x8000) * (i - 0x8000))] += vd->histogram[i];
   for (i = 0; i <= MAX_DB && !histdb[i]; i++)
     ;
   for (; i <= MAX_DB && sum < nb_samples / 1000; i++) {
-    printf("histogram_%ddb: %" PRId64 "\n", i, histdb[i]);
+    av_log(NULL, AV_LOG_INFO, "histogram_%ddb: %" PRId64 "", i, histdb[i]);
     sum += histdb[i];
   }
 }
@@ -161,20 +163,20 @@ static int build_filter_graph(AVFilterGraph *graph, AVStream *stream,
 
   ret = avfilter_init_str(abuffer_ctx, NULL);
   if (ret < 0) {
-    fprintf(stderr, "Could not initialize the abuffer_ctx instance.\n");
+    av_log(NULL, AV_LOG_ERROR, "Error initializing the abuffer_ctx instance.");
     goto end;
   }
 
   ret = avfilter_init_str(abuffersink_ctx, NULL);
   if (ret < 0) {
-    fprintf(stderr, "Could not initialize the abuffersink instance.\n");
+    av_log(NULL, AV_LOG_ERROR, "Error initializing the abuffersink instance.");
     goto end;
   }
 
   av_opt_set(aformat_ctx, "sample_fmts", "s16|s16p", AV_OPT_SEARCH_CHILDREN);
   ret = avfilter_init_str(aformat_ctx, NULL);
   if (ret < 0) {
-    fprintf(stderr, "Could not initialize the aformat_ctx instance.\n");
+    av_log(NULL, AV_LOG_ERROR, "Error initializing the aformat_ctx instance.");
     goto end;
   }
 
@@ -184,13 +186,13 @@ static int build_filter_graph(AVFilterGraph *graph, AVStream *stream,
     ret = avfilter_link(aformat_ctx, 0, abuffersink_ctx, 0);
   }
   if (ret < 0) {
-    fprintf(stderr, "Error connecting filters\n");
+    av_log(NULL, AV_LOG_ERROR, "Error connecting filters: %d", ret);
     return ret;
   }
 
   ret = avfilter_graph_config(graph, NULL);
   if (ret < 0) {
-    fprintf(stderr, "Could not configure volumedetect filter graph: %d\n", ret);
+    av_log(NULL, AV_LOG_ERROR, "Could not configure volumedetect filter graph: %d", ret);
     return -1;
   }
 
@@ -218,7 +220,7 @@ EXPORTED int ff_get_audio_volume_buffer(const uint8_t *buf, int buf_size,
     goto end;
   }
 
-  avio_ctx_buffer = av_malloc(avio_ctx_buffer_size);
+  avio_ctx_buffer = (uint8_t*)av_malloc(avio_ctx_buffer_size);
   if (!avio_ctx_buffer) {
     ret = AVERROR(ENOMEM);
     goto end;
@@ -233,7 +235,7 @@ EXPORTED int ff_get_audio_volume_buffer(const uint8_t *buf, int buf_size,
 
   ret = avformat_open_input(&fmt_ctx, NULL, NULL, NULL);
   if (ret < 0) {
-    fprintf(stderr, "Could not open input\n");
+    av_log(NULL, AV_LOG_ERROR, "Could not open input");
     goto end;
   }
 
@@ -265,7 +267,7 @@ EXPORTED int ff_get_audio_volume_callback(read_packet_t read_packet,
     goto end;
   }
 
-  avio_ctx_buffer = av_malloc(avio_ctx_buffer_size);
+  avio_ctx_buffer = (uint8_t*)av_malloc(avio_ctx_buffer_size);
   if (!avio_ctx_buffer) {
     ret = AVERROR(ENOMEM);
     goto end;
@@ -280,7 +282,7 @@ EXPORTED int ff_get_audio_volume_callback(read_packet_t read_packet,
 
   ret = avformat_open_input(&fmt_ctx, NULL, NULL, NULL);
   if (ret < 0) {
-    fprintf(stderr, "Could not open input\n");
+    av_log(NULL, AV_LOG_ERROR, "Could not open input");
     goto end;
   }
 
@@ -326,6 +328,8 @@ int _get_audio_volume(AVFormatContext *formatContext, int64_t start,
   AVFilterContext *abuffer_ctx = NULL;
   AVFilterContext *abuffersink_ctx = NULL;
   VolDetectContext *vd = NULL;
+  const AVCodec *codec = NULL;
+  AVCodecContext *codec_ctx = NULL;
   int64_t start_time = -1, end_time = -1;
   int ret;
 
@@ -359,13 +363,13 @@ int _get_audio_volume(AVFormatContext *formatContext, int64_t start,
   }
 
   // Open the audio decoder
-  const AVCodec *codec = avcodec_find_decoder(stream->codecpar->codec_id);
+  codec = avcodec_find_decoder(stream->codecpar->codec_id);
   if (codec == NULL) {
     ret = AVERROR(ENOENT);
     goto end;
   }
 
-  AVCodecContext *codec_ctx = avcodec_alloc_context3(codec);
+  codec_ctx = avcodec_alloc_context3(codec);
   if (codec_ctx == NULL) {
     ret = AVERROR(ENOMEM);
     goto end;
@@ -389,7 +393,7 @@ int _get_audio_volume(AVFormatContext *formatContext, int64_t start,
 
   ret = build_filter_graph(graph, stream, &abuffer_ctx, &abuffersink_ctx);
   if (ret < 0) {
-    fprintf(stderr, "Could not configure volumedetect filter graph: %d\n", ret);
+    av_log(NULL, AV_LOG_ERROR, "Could not configure volumedetect filter graph: %d", ret);
     return -1;
   }
 
@@ -470,7 +474,9 @@ end:
     get_stats(vd, max_volume, mean_volume);
     av_free(vd);
   }
-
+  if (codec_ctx) {
+    avcodec_free_context(&codec_ctx);
+  }
   avfilter_graph_free(&graph);
   av_packet_unref(packet);
   av_frame_free(&frame);

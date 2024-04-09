@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <map>
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,19 +39,15 @@ public:
 
   // Initialize the video parameters
   void set_fps(int fps) { m_fps = fps; }
-  void set_quality(int quality) { m_quality = quality; }
-  void set_offset(int x, int y) {
-    m_offsetx = x;
-    m_offsety = y;
-  }
   void set_size(int w, int h) {
     m_width = w;
     m_height = h;
   }
+  void set_quality(int quality) { m_quality = quality; }
   void set_title(const std::string &title) { m_title = title; }
   void set_comment(const std::string &comment) { m_comment = comment; }
-  void set_movflags(const std::string &flags) { m_movflags = flags; }
-  void set_frag_duration(int64_t duration) { m_frag_duration = duration; }
+  void set_option(const std::string &key, const std::string &value) { m_opts[key] = value; }
+  void set_gop(int size) { m_gop = size; }
 
   void start();
   void pause();
@@ -73,14 +70,14 @@ private:
   std::string m_filePath;
   std::string m_title;
   std::string m_comment;
-  std::string m_movflags;
+  int m_quality = 10;
   int m_width = 0;
   int m_height = 0;
+  int m_video_width = 0;
+  int m_video_height = 0;
   int m_fps = 25;
-  int m_quality = 5;
-  int m_offsetx = 0;
-  int m_offsety = 0;
-  int64_t m_frag_duration = -1;
+  int m_gop = 0;
+  std::map<std::string, std::string> m_opts;
 
   std::unique_ptr<std::thread> m_recordThread = nullptr;
   std::unique_ptr<std::thread> m_captureThread = nullptr;

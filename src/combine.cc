@@ -35,12 +35,12 @@ int ff_combine(std::vector<std::string> &inputs, const std::string &out_filename
 
   pkt = av_packet_alloc();
   if (!pkt) {
-    fprintf(stderr, "combine: Could not allocate AVPacket\n");
+    av_log(NULL, AV_LOG_ERROR, "Could not allocate packet.\n");
     return 1;
   }
 
   if (!(ifmt_ctx = avformat_alloc_context())) {
-    fprintf(stderr, "combine: Could not allocate input AVFormatContext\n");
+    av_log(NULL, AV_LOG_ERROR, "Could not allocate input AVFormatContext.\n");
     ret = AVERROR(ENOMEM);
     goto end;
   }
@@ -59,12 +59,12 @@ int ff_combine(std::vector<std::string> &inputs, const std::string &out_filename
   ifmt_ctx->pb = avio_ctx;
   av_dict_set(&options, "safe", "0", 0);
   if ((ret = avformat_open_input(&ifmt_ctx, 0, av_find_input_format("concat"), &options)) < 0) {
-    fprintf(stderr, "combine: Could not open input file\n");
+    av_log(NULL, AV_LOG_ERROR, "Could not open input file");
     goto end;
   }
 
   if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
-    fprintf(stderr, "combine: Failed to retrieve input stream information");
+    av_log(NULL, AV_LOG_ERROR, "Failed to retrieve input stream information\n");
     goto end;
   }
 
@@ -72,7 +72,7 @@ int ff_combine(std::vector<std::string> &inputs, const std::string &out_filename
 
   avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, out_filename.c_str());
   if (!ofmt_ctx) {
-    fprintf(stderr, "combine: Could not create output context\n");
+    av_log(NULL, AV_LOG_ERROR, "Could not create output context\n");
     ret = AVERROR_UNKNOWN;
     goto end;
   }
@@ -102,14 +102,14 @@ int ff_combine(std::vector<std::string> &inputs, const std::string &out_filename
 
     out_stream = avformat_new_stream(ofmt_ctx, 0);
     if (!out_stream) {
-      fprintf(stderr, "combine: Failed allocating output stream\n");
+      av_log(NULL, AV_LOG_ERROR, "combine: Failed allocating output stream\n");
       ret = AVERROR_UNKNOWN;
       goto end;
     }
 
     ret = avcodec_parameters_copy(out_stream->codecpar, in_codecpar);
     if (ret < 0) {
-      fprintf(stderr, "combine: Failed to copy codec parameters\n");
+      av_log(NULL, AV_LOG_ERROR, "combine: Failed to copy codec parameters\n");
       goto end;
     }
     out_stream->codecpar->codec_tag = 0;
@@ -119,7 +119,7 @@ int ff_combine(std::vector<std::string> &inputs, const std::string &out_filename
   if (!(ofmt->flags & AVFMT_NOFILE)) {
     ret = avio_open(&ofmt_ctx->pb, out_filename.c_str(), AVIO_FLAG_WRITE);
     if (ret < 0) {
-      fprintf(stderr, "combine: Could not open output file '%s'", out_filename.c_str());
+      av_log(NULL, AV_LOG_ERROR, "Error occurred when opening output file %s\n", out_filename.c_str());
       goto end;
     }
   }
@@ -127,7 +127,7 @@ int ff_combine(std::vector<std::string> &inputs, const std::string &out_filename
   av_dict_set(&options, "movflags", "faststart", 0);
   ret = avformat_write_header(ofmt_ctx, &options);
   if (ret < 0) {
-    fprintf(stderr, "combine: Error occurred when opening output file\n");
+    av_log(NULL, AV_LOG_ERROR, "Error occurred when opening output file\n");
     goto end;
   }
 
@@ -160,7 +160,7 @@ int ff_combine(std::vector<std::string> &inputs, const std::string &out_filename
      * its contents and resets pkt), so that no unreferencing is necessary.
      * This would be different if one used av_write_frame(). */
     if (ret < 0) {
-      fprintf(stderr, "combine: error muxing packet\n");
+      av_log(NULL, AV_LOG_ERROR, "Error muxing packet\n");
       break;
     }
   }
@@ -182,7 +182,7 @@ end:
   av_freep(&stream_mapping);
 
   if (ret < 0 && ret != AVERROR_EOF) {
-    fprintf(stderr, "combine: error occurred: %d", ret);
+    av_log(NULL, AV_LOG_ERROR, "combine: error occurred: %d\n", ret);
     return 1;
   }
 

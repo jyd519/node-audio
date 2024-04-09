@@ -16,7 +16,6 @@ extern "C" {
 }
 #endif
 
-#include <fmt/core.h>
 #include <thread>
 
 inline constexpr auto str2fourcc(const char str[4]) {
@@ -56,29 +55,28 @@ int64_t ScreenCapturer::stop() {
   return m_encodeFrameCnt;
 }
 
+inline int round16(int v) { return (v + 15) & ~15; }
+
 int ScreenCapturer::openVideo() {
   int ret = -1;
   const AVInputFormat *ifmt = av_find_input_format("gdigrab");
   AVDictionary *options = nullptr;
   const AVCodec *decoder = nullptr;
-  // Set the acquisition frame rate
-  av_dict_set(&options, "framerate", std::to_string(m_fps).c_str(), 0);
-  av_dict_set(&options, "probesize", (std::to_string(m_fps * 2) + "M").c_str(), 0);
-  av_dict_set(&options, "offset_x", std::to_string(m_offsetx).c_str(), 0);
-  av_dict_set(&options, "offset_y", std::to_string(m_offsety).c_str(), 0);
 
-  if (m_width > 0 && m_height > 0) {
-    av_dict_set(&options, "video_size",
-                (std::to_string(m_width) + "x" + std::to_string(m_height)).c_str(), 0);
+  for (auto& v : m_opts) {
+    av_dict_set(&options, v.first.c_str(), v.second.c_str(), 0); 
   }
 
+  av_dict_set(&options, "framerate", std::to_string(m_fps).c_str(), 0);
+  av_dict_set(&options, "probesize", (std::to_string(m_fps * 2) + "M").c_str(), 0);
+
   if (avformat_open_input(&m_vFmtCtx, "desktop", ifmt, &options) != 0) {
-    fmt::print(stderr, "Cant not open video input stream\n");
+    av_log(nullptr, AV_LOG_ERROR, "Cant not open video input stream");
     return -1;
   }
 
   if (avformat_find_stream_info(m_vFmtCtx, nullptr) < 0) {
-    fmt::print(stderr, "Couldn't find stream information\n");
+    av_log(nullptr, AV_LOG_ERROR, "Cant not find stream information");
     return -1;
   }
 
@@ -87,13 +85,13 @@ int ScreenCapturer::openVideo() {
     if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
       decoder = avcodec_find_decoder(stream->codecpar->codec_id);
       if (decoder == nullptr) {
-        fmt::print(stderr, "avcodec_find_decoder failed\n");
+        av_log(nullptr, AV_LOG_ERROR, "avcodec_find_decoder failed");
         return -1;
       }
       // Copy parameters from the video stream to codecCtx
       m_vDecodeCtx = avcodec_alloc_context3(decoder);
       if ((ret = avcodec_parameters_to_context(m_vDecodeCtx, stream->codecpar)) < 0) {
-        fmt::print(stderr, "Video avcodec_parameters_to_context failed,error code: {}\n", ret);
+        av_log(nullptr, AV_LOG_ERROR, "Video avcodec_parameters_to_context failed: %d", ret);
         return -1;
       }
       m_vIndex = i;
@@ -104,8 +102,8 @@ int ScreenCapturer::openVideo() {
   m_vDecodeCtx->thread_count = std::thread::hardware_concurrency();
   m_vDecodeCtx->thread_type = FF_THREAD_SLICE;
 
-  if (avcodec_open2(m_vDecodeCtx, decoder, &m_dict) < 0) {
-    fmt::print(stderr, "avcodec_open2 failed\n");
+  if (avcodec_open2(m_vDecodeCtx, decoder, nullptr) < 0) {
+    av_log(nullptr, AV_LOG_ERROR, "avcodec_open2 failed");
     return -1;
   }
 
@@ -116,9 +114,27 @@ int ScreenCapturer::openVideo() {
     m_height = m_vDecodeCtx->height;
   }
 
+  av_log(nullptr, AV_LOG_INFO, "Capture resolution: %dx%d\n", m_width, m_height);
+
+  m_video_width = m_width;
+  m_video_height= m_height;
+  auto ratio = m_height * 1.0 / m_width;
+  if (m_width >= 4096 && m_height >= 2160) {
+    m_video_width = 4096;
+    m_video_height=round16(m_video_width * ratio);
+  } if (m_width >= 3840 && m_height >= 2160) {
+    m_video_width = 3840;
+    m_video_height= round16(m_video_width * ratio);
+  } else if (m_width >= 1920 && m_height >= 1080) {
+    m_video_width = 1920;
+    m_video_height= round16(m_video_width * ratio);
+  }
+
+  av_log(nullptr, AV_LOG_INFO, "Video resolution: %dx%d\n", m_video_width, m_video_height);
+
   m_swsCtx =
-      sws_getContext(m_vDecodeCtx->width, m_vDecodeCtx->height, m_vDecodeCtx->pix_fmt, m_width,
-                     m_height, AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+      sws_getContext(m_vDecodeCtx->width, m_vDecodeCtx->height, m_vDecodeCtx->pix_fmt, m_video_width,
+                     m_video_height, AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
 
   return m_swsCtx != nullptr ? 0 : -1;
 }
@@ -130,20 +146,27 @@ int ScreenCapturer::openOutput() {
 
   ret = avformat_alloc_output_context2(&m_oFmtCtx, nullptr, nullptr, outFilePath.c_str());
   if (ret < 0) {
-    fmt::print(stderr, "avformat_alloc_output_context2 failed\n");
+    av_log(nullptr, AV_LOG_ERROR, "avformat_alloc_output_context2 failed");
     return -1;
   }
 
   const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
   if (!codec) {
-    fmt::print(stderr, "can not find h.264 encoder\n");
+    av_log(nullptr, AV_LOG_ERROR, "can not find h.264 encoder");
     return -1;
+  }
+
+  if (!m_title.empty()) {
+    av_dict_set(&m_oFmtCtx->metadata, "title", m_title.c_str(), 0);
+  }
+  if (!m_comment.empty()) {
+    av_dict_set(&m_oFmtCtx->metadata, "comment", m_comment.c_str(), 0);
   }
 
   if (m_vFmtCtx->streams[m_vIndex]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
     vStream = avformat_new_stream(m_oFmtCtx, nullptr);
     if (vStream == nullptr) {
-      fmt::print(stderr, "can not new stream for output\n");
+      av_log(nullptr, AV_LOG_ERROR, "can not new stream for output\n");
       return -1;
     }
 
@@ -152,7 +175,7 @@ int ScreenCapturer::openOutput() {
 
     m_vEncodeCtx = avcodec_alloc_context3(codec);
     if (nullptr == m_vEncodeCtx) {
-      fmt::print(stderr, "avcodec_alloc_context3 failed\n");
+      av_log(nullptr, AV_LOG_ERROR, "avcodec_alloc_context3 failed");
       return -1;
     }
 
@@ -162,20 +185,20 @@ int ScreenCapturer::openOutput() {
     // Find the video encoder
     const AVCodec *encoder = avcodec_find_encoder(m_vEncodeCtx->codec_id);
     if (encoder == nullptr) {
-      fmt::print(stderr, "Can not find the encoder, id: {}\n", (int)m_vEncodeCtx->codec_id);
+      av_log(nullptr, AV_LOG_ERROR, "Can not find the encoder, id: %d", (int)m_vEncodeCtx->codec_id);
       return -1;
     }
 
     // Open the video encoder
-    ret = avcodec_open2(m_vEncodeCtx, encoder, nullptr);
+    ret = avcodec_open2(m_vEncodeCtx, encoder, &m_dict);
     if (ret < 0) {
-      fmt::print(stderr, "Can not open encoder id: {} error code: {}\n", (int)encoder->id, ret);
+      av_log(nullptr, AV_LOG_ERROR, "Can not open encoder id: %d error code: %d", (int)encoder->id, ret);
       return -1;
     }
     // Pass the parameters in codecCtx to the output stream
     ret = avcodec_parameters_from_context(vStream->codecpar, m_vEncodeCtx);
     if (ret < 0) {
-      fmt::print(stderr, "Output avcodec_parameters_from_context,error code:{}\n", ret);
+      av_log(nullptr, AV_LOG_ERROR, "Output avcodec_parameters_from_context error code: %d", ret);
       return -1;
     }
   }
@@ -183,27 +206,23 @@ int ScreenCapturer::openOutput() {
   // Open the output file
   if ((m_oFmtCtx->oformat->flags & AVFMT_NOFILE) == 0) {
     if (avio_open(&m_oFmtCtx->pb, outFilePath.c_str(), AVIO_FLAG_WRITE) < 0) {
-      fmt::print(stderr, "avio_open failed\n");
+      av_log(nullptr, AV_LOG_ERROR, "avio_open failed");
       return -1;
     }
   }
 
-  if (!m_title.empty()) {
+  // Write the file header
+  if (!m_title.empty()) 
     av_dict_set(&m_oFmtCtx->metadata, "title", m_title.c_str(), 0);
-  }
-  if (!m_comment.empty()) {
+  if (!m_comment.empty()) 
     av_dict_set(&m_oFmtCtx->metadata, "comment", m_comment.c_str(), 0);
-  }
-  if (!m_movflags.empty()) {
-    av_dict_set(&m_dict, "movflags", m_movflags.c_str(), 0);
-  }
-  if (m_frag_duration> 0) {
-    av_dict_set(&m_dict, "frag_duration", std::to_string(m_frag_duration).c_str(), 0);
+
+  for (auto& v : m_opts) {
+    av_dict_set(&m_dict, v.first.c_str(), v.second.c_str(), 0); 
   }
 
-  // Write the file header
   if (avformat_write_header(m_oFmtCtx, &m_dict) < 0) {
-    fmt::print(stderr, "avformat_write_header failed\n");
+    av_log(nullptr, AV_LOG_ERROR, "avformat_write_header failed");
     return -1;
   }
 
@@ -226,7 +245,7 @@ void ScreenCapturer::screenRecordThreadProc() {
 
   // Apply for fps*4 frame buffer
   if ((m_vFifo = av_fifo_alloc2(m_fps * 4, sizeof(AVFrame *), 0)) == nullptr) {
-    fmt::print(stderr, "av_fifo_alloc2 failed\n");
+    av_log(nullptr, AV_LOG_ERROR, "av_fifo_alloc2 failed");
     return;
   }
 
@@ -258,22 +277,22 @@ void ScreenCapturer::screenRecordThreadProc() {
     // Set the video frame parameters
     outFrame->pts = vFrameIndex++;
     outFrame->format = m_vEncodeCtx->pix_fmt;
-    outFrame->width = m_width;
-    outFrame->height = m_height;
+    outFrame->width = m_video_width;
+    outFrame->height = m_video_height;
     outFrame->pict_type = AV_PICTURE_TYPE_NONE;
     ret = avcodec_send_frame(m_vEncodeCtx, outFrame);
     av_frame_free(&outFrame);
     if (ret != 0) {
-      fmt::print(stderr, "video avcodec_send_frame failed, ret: {}\n", ret);
+      av_log(nullptr, AV_LOG_ERROR, "avcodec_send_frame failed: %d", ret);
       continue;
     }
     ret = avcodec_receive_packet(m_vEncodeCtx, pkt);
     if (ret != 0) {
       if (ret == AVERROR(EAGAIN)) {
-        fmt::print(stderr, "EAGAIN avcodec_receive_packet\n");
+        av_log(nullptr, AV_LOG_ERROR, "EAGAIN avcodec_receive_packet: %d", ret);
         continue;
       }
-      fmt::print(stderr, "video avcodec_receive_packet failed, ret: {}\n", ret);
+      av_log(nullptr, AV_LOG_ERROR, "avcodec_receive_packet failed: %d", ret);
       return;
     }
 
@@ -285,12 +304,12 @@ void ScreenCapturer::screenRecordThreadProc() {
     ret = av_interleaved_write_frame(m_oFmtCtx, pkt);
     if (ret == 0) {
       ++m_encodeFrameCnt;
-      if ((av_gettime() - ticket) >= 5000000) {  // 5s
+      if ((av_gettime() - ticket) >= 2000000) {  // 2s
         ticket = av_gettime();
         avio_flush(m_oFmtCtx->pb);
       }
     } else {
-      fmt::print(stderr, "video av_interleaved_write_frame failed, ret:{}\n", ret);
+      av_log(nullptr, AV_LOG_ERROR, "video av_interleaved_write_frame failed, ret:%d", ret);
     }
     av_packet_unref(pkt);
   }
@@ -309,11 +328,11 @@ void ScreenCapturer::screenAcquireThreadProc() {
   AVFrame *newFrame = av_frame_alloc();
 
   newFrame->format = m_vEncodeCtx->pix_fmt;
-  newFrame->width = m_width;
-  newFrame->height = m_height;
+  newFrame->width = m_video_width;
+  newFrame->height = m_video_height;
   ret = av_frame_get_buffer(newFrame, 0);
   if (ret < 0) {
-    fmt::print(stderr, "av_frame_get_buffer failed\n");
+    av_log(nullptr, AV_LOG_ERROR, "av_frame_get_buffer failed: %d", ret);
     m_captureStopped = true;
     return;
   }
@@ -325,24 +344,24 @@ void ScreenCapturer::screenAcquireThreadProc() {
     }
 
     if (av_read_frame(m_vFmtCtx, pkt) < 0) {
-      fmt::print(stderr, "video av_read_frame < 0\n");
+      av_log(nullptr, AV_LOG_ERROR, "video av_read_frame failed");
       continue;
     }
     if (pkt->stream_index != m_vIndex) {
-      fmt::print(stderr, "not a video packet from video input\n");
+      av_log(nullptr, AV_LOG_ERROR, "not a video packet from video input");
       av_packet_unref(pkt);
       continue;
     }
 
     ret = avcodec_send_packet(m_vDecodeCtx, pkt);
     if (ret != 0) {
-      fmt::print(stderr, "avcodec_send_packet failed, ret:{}\n", ret);
+      av_log(nullptr, AV_LOG_ERROR, "avcodec_send_packet failed, ret:%d", ret);
       av_packet_unref(pkt);
       continue;
     }
     ret = avcodec_receive_frame(m_vDecodeCtx, oldFrame);
     if (ret != 0) {
-      fmt::print(stderr, "avcodec_receive_frame failed, ret:{}\n", ret);
+      av_log(nullptr, AV_LOG_ERROR, "avcodec_receive_frame failed, ret:%d", ret);
       av_packet_unref(pkt);
       continue;
     }
@@ -384,12 +403,13 @@ void ScreenCapturer::setEncoderParams() {
     m_quality = 5;
   }
 
-  m_vEncodeCtx->width = m_width;
-  m_vEncodeCtx->height = m_height;
+  m_vEncodeCtx->width = m_video_width;
+  m_vEncodeCtx->height = m_video_height;
   m_vEncodeCtx->codec_type = AVMEDIA_TYPE_VIDEO;
   m_vEncodeCtx->time_base.num = 1;
   m_vEncodeCtx->time_base.den = m_fps;
-  m_vEncodeCtx->gop_size = 10;
+  if (m_gop > 0) 
+    m_vEncodeCtx->gop_size = m_gop;
   m_vEncodeCtx->max_b_frames = 2;
   m_vEncodeCtx->qmin = m_quality - (m_quality > 1 ? 1 : 0);
   m_vEncodeCtx->qmax = m_quality + 1;
@@ -407,8 +427,8 @@ void ScreenCapturer::flushDecoder() {
   AVFrame *oldFrame = av_frame_alloc();
   AVFrame *newFrame = av_frame_alloc();
   newFrame->format = m_vEncodeCtx->pix_fmt;
-  newFrame->width = m_width;
-  newFrame->height = m_height;
+  newFrame->width = m_video_width;
+  newFrame->height = m_video_height;
   av_frame_get_buffer(newFrame, 0);
 
   ret = avcodec_send_packet(m_vDecodeCtx, nullptr);
@@ -439,7 +459,7 @@ void ScreenCapturer::flushDecoder() {
     AVFrame *clone = av_frame_clone(newFrame);
     ret = av_fifo_write(m_vFifo, clone, 1);
     if (ret < 0) {
-      fmt::print(stderr, "av_fifo_write failed, ret: {}\n", ret);
+      av_log(nullptr, AV_LOG_ERROR, "flush av_fifo_write, ret: %d", ret);
       av_frame_free(&clone);
       break;
     }
@@ -455,7 +475,7 @@ void ScreenCapturer::flushEncoder() {
   AVPacket *pkt = av_packet_alloc();
   ret = avcodec_send_frame(m_vEncodeCtx, nullptr);
   if (ret < 0) {
-    fmt::print(stderr, "flush: avcodec_send_frame error, ret: {}\n", ret);
+    av_log(nullptr, AV_LOG_ERROR, "flush: avcodec_send_frame error, ret: %d", ret);
     return;
   }
   while (ret >= 0) {

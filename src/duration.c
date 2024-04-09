@@ -12,6 +12,8 @@ int ff_get_av_duration_buffer(const uint8_t *buf, int buf_size,
   size_t avio_ctx_buffer_size = 4096;
   int ret = 0;
   struct buffer_data bd = {0};
+  double sec_duration = 0;
+  int stream_index = -1;
 
   bd.ptr = (uint8_t *)buf;
   bd.size = buf_size;
@@ -22,7 +24,7 @@ int ff_get_av_duration_buffer(const uint8_t *buf, int buf_size,
     goto end;
   }
 
-  avio_ctx_buffer = av_malloc(avio_ctx_buffer_size);
+  avio_ctx_buffer = (uint8_t*)av_malloc(avio_ctx_buffer_size);
   if (!avio_ctx_buffer) {
     ret = AVERROR(ENOMEM);
     goto end;
@@ -45,7 +47,6 @@ int ff_get_av_duration_buffer(const uint8_t *buf, int buf_size,
   }
 
   // Find the first matched stream
-  int stream_index = -1;
   for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {
     if (fmt_ctx->streams[i]->codecpar->codec_type == mediaType) {
       stream_index = i;
@@ -58,7 +59,6 @@ int ff_get_av_duration_buffer(const uint8_t *buf, int buf_size,
   }
 
   // Get the duration of the specified stream in seconds
-  double sec_duration = 0;
   if (fmt_ctx->streams[stream_index]->duration != AV_NOPTS_VALUE) {
     sec_duration = (double)(fmt_ctx->duration) / AV_TIME_BASE;
   } else {
@@ -81,6 +81,8 @@ int ff_get_av_duration_callback(read_packet_t read_file, void* ctx,
   uint8_t *avio_ctx_buffer = NULL;
   size_t avio_ctx_buffer_size = 4096;
   int ret = 0;
+  double sec_duration = 0;
+  int stream_index = -1;
 
   *duration = 0;
 
@@ -89,7 +91,7 @@ int ff_get_av_duration_callback(read_packet_t read_file, void* ctx,
     goto end;
   }
 
-  avio_ctx_buffer = av_malloc(avio_ctx_buffer_size);
+  avio_ctx_buffer = (uint8_t*)av_malloc(avio_ctx_buffer_size);
   if (!avio_ctx_buffer) {
     ret = AVERROR(ENOMEM);
     goto end;
@@ -112,7 +114,6 @@ int ff_get_av_duration_callback(read_packet_t read_file, void* ctx,
   }
 
   // Find the first matched stream
-  int stream_index = -1;
   for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {
     if (fmt_ctx->streams[i]->codecpar->codec_type == mediaType) {
       stream_index = i;
@@ -125,7 +126,6 @@ int ff_get_av_duration_callback(read_packet_t read_file, void* ctx,
   }
 
   // Get the duration of the specified stream in seconds
-  double sec_duration = 0;
   if (fmt_ctx->streams[stream_index]->duration != AV_NOPTS_VALUE) {
     sec_duration = (double)(fmt_ctx->duration) / AV_TIME_BASE;
   } else {
@@ -144,6 +144,8 @@ int ff_get_av_duration(const char *inputFilePath, enum AVMediaType mediaType,
                        int *duration) {
   AVFormatContext *fmt_ctx = NULL;
   int ret = 0;
+  int stream_index = -1;
+  double sec_duration = 0;
 
   *duration = 0;
 
@@ -158,7 +160,6 @@ int ff_get_av_duration(const char *inputFilePath, enum AVMediaType mediaType,
   }
 
   // Find the first matched stream
-  int stream_index = -1;
   for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {
     if (fmt_ctx->streams[i]->codecpar->codec_type == mediaType) {
       stream_index = i;
@@ -172,7 +173,6 @@ int ff_get_av_duration(const char *inputFilePath, enum AVMediaType mediaType,
   }
 
   // Get the duration of the specified stream in seconds
-  double sec_duration = 0;
   if (fmt_ctx->streams[stream_index]->duration != AV_NOPTS_VALUE) {
     sec_duration = (double)(fmt_ctx->duration) / AV_TIME_BASE;
   } else {

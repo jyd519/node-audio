@@ -12,6 +12,6 @@ const addon_dir =(function() {
   return "linux-amd64";
 }());
 
-const addon = require(`./${addon_dir}/audio.node`);
+const addon = require(`../${addon_dir}/audio.node`);
 
 module.exports = addon;
