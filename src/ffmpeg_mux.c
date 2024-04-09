@@ -25,7 +25,12 @@
 #include "objpool.h"
 #include "sync_queue.h"
 #include "thread_queue.h"
+
+#ifdef _WIN32
 #include "pthread.h"
+#else
+#include <pthread.h>
+#endif
 
 #include "libavutil/fifo.h"
 #include "libavutil/intreadwrite.h"
@@ -206,7 +211,9 @@ static void thread_set_name(OutputFile *of)
 {
     char name[16];
     snprintf(name, sizeof(name), "mux%d:%s", of->index, of->format->name);
+#ifdef _WIN32
     ff_thread_setname(name);
+#endif
 }
 
 static void *muxer_thread(void *arg)

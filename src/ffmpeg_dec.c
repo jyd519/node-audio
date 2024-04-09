@@ -657,7 +657,9 @@ static void dec_thread_set_name(const InputStream *ist)
     char name[16];
     snprintf(name, sizeof(name), "dec%d:%d:%s", ist->file_index, ist->index,
              ist->dec_ctx->codec->name);
+#ifdef _WIN32
     ff_thread_setname(name);
+#endif
 }
 
 static void dec_thread_uninit(DecThreadContext *dt)

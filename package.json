@@ -8,7 +8,6 @@
     "build": "cmake-js compile",
     "x64": "cmake-js rebuild -a x64 -O x64build",
     "ia32": "cmake-js rebuild -a ia32 -O ia32build",
-
     "debug": "node-gyp --debug configure build",
     "config": "node-gyp configure",
     "release": "node-gyp configure rebuild",

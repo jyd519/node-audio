@@ -37,11 +37,14 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef __linux__ 
+#include <unistd.h>
+#endif
+
+#ifdef _WIN32
 #if HAVE_IO_H
 #include <io.h>
 #endif
-#if HAVE_UNISTD_H
-#include <unistd.h>
 #endif
 
 #if HAVE_SYS_RESOURCE_H
@@ -51,6 +54,7 @@
 #elif HAVE_GETPROCESSTIMES
 #include <windows.h>
 #endif
+
 #if HAVE_GETPROCESSMEMORYINFO
 #include <psapi.h>
 #include <windows.h>
@@ -333,8 +337,10 @@ static int read_key(void) {
     }
   }
 #endif
+#ifdef _WIN32
   if (kbhit())
     return (getch());
+#endif
 #endif
   return -1;
 }
@@ -1418,6 +1424,8 @@ finish:
     ret = 0;
   ff_running = 0;
   ffmpeg_cleanup(ret);
+#ifdef BUILD_DLL
   close_report();
+#endif
   return ret;
 }

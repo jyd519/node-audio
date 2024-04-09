@@ -20,7 +20,11 @@
 #include <stdint.h>
 
 #include "ffmpeg.h"
-#include "pthread.h"
+#ifdef _WIN32
+#include "pthread_win32.h"
+#else
+#include <pthread.h>
+#endif
 
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
@@ -539,7 +543,9 @@ static void thread_set_name(InputFile *f)
 {
     char name[16];
     snprintf(name, sizeof(name), "dmx%d:%s", f->index, f->ctx->iformat->name);
+#ifdef _WIN32
     ff_thread_setname(name);
+#endif
 }
 
 static void *input_thread(void *arg)

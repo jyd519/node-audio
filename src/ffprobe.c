@@ -63,7 +63,12 @@
 #include "libswscale/swscale.h"
 #include "libswscale/version.h"
 #include "opt_common.h"
-#include "pthread.h"
+
+#ifdef _WIN32
+#include "pthread_win32.h"
+#else
+#include <pthread.h>
+#endif
 
 #if !HAVE_THREADS
 #ifdef pthread_mutex_lock

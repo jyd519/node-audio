@@ -19,6 +19,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#ifdef __linux__
+#define __USE_ISOC99 1
+#endif
 #include <errno.h>
 #include <math.h>
 #include <stdint.h>

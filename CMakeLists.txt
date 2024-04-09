@@ -20,6 +20,14 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+if(APPLE)
+    set(CMAKE_INSTALL_RPATH "@executable_path")
+else()
+    set(CMAKE_INSTALL_RPATH "$ORIGIN:$ORIGIN/..")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -30,9 +38,14 @@ endif()
 
 add_subdirectory(libwebm)
 
-find_package(FFMPEG REQUIRED)
+find_package(FFmpeg REQUIRED)
 find_package(OpenSSL REQUIRED)
+
+if (WIN32)
 find_package(fmt CONFIG REQUIRED)
+else()
+add_subdirectory(third_party/fmt)
+endif()
 
 add_definitions(-DNAPI_VERSION=4)
 include_directories(${CMAKE_JS_INC})
@@ -74,11 +87,21 @@ if(WIN32)
 endif(WIN32)
 
 add_executable(ffprobe ${FFPROBE_SRC})
-target_compile_options(ffprobe PRIVATE /experimental:c11atomics /std:c11)
 target_include_directories(ffprobe PRIVATE src src/compat)
+if(WIN32)
+  target_compile_options(ffprobe PRIVATE /experimental:c11atomics /std:c11)
+else()
+  target_compile_options(ffprobe PRIVATE -D_POSIX_C_SOURCE=200809L)
+  target_link_libraries(ffprobe PRIVATE m)
+endif(WIN32)
+
 add_executable(ffmpeg ${FFMPEG_SRC})
-target_compile_options(ffmpeg PRIVATE /experimental:c11atomics /std:c11)
 target_include_directories(ffmpeg PRIVATE src src/compat)
+if(WIN32)
+target_compile_options(ffmpeg PRIVATE /experimental:c11atomics /std:c11)
+else()
+target_link_libraries(ffmpeg PRIVATE m pthread)
+endif(WIN32)
 
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES} ${CMAKE_JS_SRC})
 target_compile_definitions(${PROJECT_NAME} PRIVATE BUILD_DLL NAPI_DISABLE_CPP_EXCEPTIONS)
@@ -86,7 +109,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE . libwebm src)
 target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB} webm fmt::fmt-header-only)
 target_include_directories(${PROJECT_NAME} PRIVATE ${NODE_ADDON_API_DIR})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
+if(WIN32)
 target_compile_options(${PROJECT_NAME} PRIVATE /experimental:c11atomics /std:c11)
+endif(WIN32)
 
 add_library(webmdll SHARED 
     "src/webvtt/vttreader.cc" "src/webvtt/webvttparser.cc" "src/webm_muxer.cc" "src/sample_muxer_metadata.cc"
@@ -110,12 +135,24 @@ IF( EXISTS "${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json" )
 ENDIF()
 
 if (DEFINED ENV{FFMPEG_ROOT})
-  file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe" "$ENV{FFMPEG_ROOT}/bin/*.dll")
-  message(info "${FFMPEG_BIN_FILES}")
-  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
-      DEPENDS $<TARGET_FILE_DIR:ffprobe>/avcodec-60.dll
-    )
+  if (WIN32)
+    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe" "$ENV{FFMPEG_ROOT}/bin/*.dll")
+  else()
+    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/*.so")
+  endif()
+  message(info ">>>COPY: ${FFMPEG_BIN_FILES}")
+
+  if (WIN32)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        DEPENDS $<TARGET_FILE_DIR:ffprobe>/avcodec-60.dll
+      )
+  else()
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        DEPENDS $<TARGET_FILE_DIR:ffprobe>
+      )
+  endif()
 else()
   message(FATAL "FFMPEG_ROOT not set")
 endif()
