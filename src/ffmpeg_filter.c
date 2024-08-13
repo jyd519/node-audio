@@ -342,9 +342,9 @@ static int choose_pix_fmts(OutputFilter *ofilter, AVBPrint *bprint,
 
     if (ost->keep_pix_fmt || ofp->format != AV_PIX_FMT_NONE) {
         *dst = ofp->format == AV_PIX_FMT_NONE ? NULL :
-               av_get_pix_fmt_name(ofp->format);
+               av_get_pix_fmt_name((enum AVPixelFormat)ofp->format);
     } else if (ofp->formats) {
-        const enum AVPixelFormat *p = ofp->formats;
+        const enum AVPixelFormat *p = (const enum AVPixelFormat *)ofp->formats;
 
         for (; *p != AV_PIX_FMT_NONE; p++) {
             const char *name = av_get_pix_fmt_name(*p);

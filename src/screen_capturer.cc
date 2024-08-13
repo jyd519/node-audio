@@ -64,7 +64,7 @@ int ScreenCapturer::openVideo() {
   const AVCodec *decoder = nullptr;
 
   for (auto& v : m_opts) {
-    av_dict_set(&options, v.first.c_str(), v.second.c_str(), 0); 
+    av_dict_set(&options, v.first.c_str(), v.second.c_str(), 0);
   }
 
   av_dict_set(&options, "framerate", std::to_string(m_fps).c_str(), 0);
@@ -212,13 +212,13 @@ int ScreenCapturer::openOutput() {
   }
 
   // Write the file header
-  if (!m_title.empty()) 
+  if (!m_title.empty())
     av_dict_set(&m_oFmtCtx->metadata, "title", m_title.c_str(), 0);
-  if (!m_comment.empty()) 
+  if (!m_comment.empty())
     av_dict_set(&m_oFmtCtx->metadata, "comment", m_comment.c_str(), 0);
 
   for (auto& v : m_opts) {
-    av_dict_set(&m_dict, v.first.c_str(), v.second.c_str(), 0); 
+    av_dict_set(&m_dict, v.first.c_str(), v.second.c_str(), 0);
   }
 
   if (avformat_write_header(m_oFmtCtx, &m_dict) < 0) {
@@ -408,7 +408,7 @@ void ScreenCapturer::setEncoderParams() {
   m_vEncodeCtx->codec_type = AVMEDIA_TYPE_VIDEO;
   m_vEncodeCtx->time_base.num = 1;
   m_vEncodeCtx->time_base.den = m_fps;
-  if (m_gop > 0) 
+  if (m_gop > 0)
     m_vEncodeCtx->gop_size = m_gop;
   m_vEncodeCtx->max_b_frames = 2;
   m_vEncodeCtx->qmin = m_quality - (m_quality > 1 ? 1 : 0);

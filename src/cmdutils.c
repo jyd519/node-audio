@@ -83,7 +83,7 @@ void init_dynload(void) {
   /* Calling SetDllDirectory with the empty string (but not NULL) removes the
    * current working directory from the DLL search path as a security
    * pre-caution. */
-  SetDllDirectory("");
+  SetDllDirectoryW(L"");
 #endif
 }
 

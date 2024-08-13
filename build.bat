@@ -7,5 +7,8 @@ set VCPKG_ROOT=D:/dev/cpp/vcpkg
 REM set FFMPEG_ROOT=E:\FFmpeg\out\ffbuild
 REM cmake-js compile -a ia32 -O "out\build32" --CDCMAKE_TOOLCHAIN_FILE="D:/dev/cpp/vcpkg/scripts/buildsystems/vcpkg.cmake" --CDVCPKG_TARGET_TRIPLET=x86-windows-static
 
+
+REM DEV
 set FFMPEG_ROOT=E:\FFmpeg\out\ffbuild64
-cmake-js compile -D -a x64 -O "out\build64"
+cmake-js compile -G "Ninja" -D -a x64 -O "out\build64" --CDUSE_WEBM=ON
+REM cmake-js compile -G "Ninja" -D -a x64 -O "out\build64"

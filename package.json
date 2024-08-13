@@ -28,9 +28,11 @@
     "@babel/preset-env": "^7.12.13",
     "@babel/runtime": "^7.12.13",
     "babel-jest": "^26.6.3",
-    "jest": "^26.6.3"
+    "jest": "^26.6.3",
+    "nobind17": "^1.2.0"
   },
   "dependencies": {
+    "canvas": "^2.11.2",
     "cmake-js": "^7.3.0",
     "node-addon-api": "^8.0.0"
   }

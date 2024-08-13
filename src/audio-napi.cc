@@ -38,6 +38,7 @@ extern "C" {
 #include "webm_muxer.h"
 #include "napi_help.h"
 #include "addon_api.h"
+#include "recorder_api.h"
 
 #define CHECK(expr)                                                                                \
   {                                                                                                \
@@ -576,6 +577,9 @@ err:
 }
 
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
+ InstanceData* instance = new InstanceData();
+ env.SetInstanceData(instance);
+
  napi_status status = napi_ok;
 #define ADD_FUNCTION(name)                                                                         \
   napi_value name##_fn;                                                                            \
@@ -593,6 +597,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   ADD_FUNCTION(get_audio_duration)
   ADD_FUNCTION(get_audio_volume_info)
   ADD_FUNCTION(probe)
+
   exports.Set("record_screen", Napi::Function::New(env, record_screen));
   exports.Set("combine", Napi::Function::New(env, combine));
 
@@ -601,6 +606,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
     av_log_set_level(AV_LOG_DEBUG);
   }
 
+  Recorder::Init(env, exports);
   return exports;
 }
 

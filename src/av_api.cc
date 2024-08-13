@@ -319,7 +319,7 @@ Napi::Value combine(const Napi::CallbackInfo &info) {
   std::vector<std::string> inputs;
   auto output = info[0].As<Napi::String>();
   auto input = info[1].As<Napi::Array>();
-  for (int i = 0; i < input.Length(); i++) {
+  for (unsigned int i = 0; i < input.Length(); i++) {
     auto item = input.Get(i).As<Napi::String>();
     inputs.push_back(item.Utf8Value());
   }
