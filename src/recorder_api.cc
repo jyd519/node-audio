@@ -130,7 +130,7 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
     struct tm timeinfo{};
     char buffer[80] = {0};
     time(&rawtime);
-    gmtime_s(&timeinfo, &rawtime);
+    gmtime_r(&rawtime, &timeinfo);
     strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
     metaDic.set("creation_time", buffer);
   }

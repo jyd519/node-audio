@@ -26,9 +26,10 @@ foreach(TARGET ${AV_TARGETS})
     endif()
 
     add_library(${TARGET} ${TYPE} ${AV_SOURCES} ${AV_HEADERS})
-
+    find_package(ffmpeg)
     target_compile_options(${TARGET} PRIVATE ${AVCPP_WARNING_OPTIONS})
     target_compile_definitions(${TARGET} PUBLIC __STDC_CONSTANT_MACROS)
+    target_link_libraries(${TARGET} PRIVATE PUBLIC ffmpeg::ffmpeg)
     # target_link_libraries(${TARGET} PRIVATE Threads::Threads PUBLIC FFmpeg::FFmpeg)
     # target_link_libraries(${TARGET} PRIVATE Threads::Threads )
     target_include_directories(${TARGET}

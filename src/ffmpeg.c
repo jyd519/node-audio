@@ -37,7 +37,7 @@
 #include <string.h>
 #include <time.h>
 
-#ifdef __linux__ 
+#ifndef _WIN32
 #include <unistd.h>
 #endif
 
@@ -1136,7 +1136,7 @@ static int transcode_step(OutputStream *ost) {
       return 0;
   } else {
     ist = ost->ist;
-    av_assert0(ist);
+    // av_assert0(ist);
   }
 
   ret = process_input(ist->file_index);
@@ -1331,14 +1331,14 @@ void log_callback_capture(void *ptr, int level, const char *fmt, va_list vl) {
 }
 
 #if defined(BUILD_DLL)
-EXPORTED void ff_log_set(int level, void *callback) { 
+EXPORTED void ff_log_set(int level, void *callback) {
   av_log_set_level(level);
   if (callback) {
     av_log_set_callback(callback);
   }
 }
 
-EXPORTED void ff_log_reset(int level) { 
+EXPORTED void ff_log_reset(int level) {
   av_log_set_level(level);
   av_log_set_callback(av_log_default_callback);
 }
@@ -1357,7 +1357,7 @@ int main(int argc, char **argv)
 {
   int ret, err_rate_exceeded;
   BenchmarkTimeStamps ti;
-  
+
 #ifndef BUILD_DLL
   init_dynload();
 #else

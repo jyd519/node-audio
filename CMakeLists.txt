@@ -2,18 +2,6 @@ cmake_minimum_required(VERSION 3.27)
 
 project(audio)
 
-if(DEFINED ENV{VCPKG_ROOT})
-  message("Bootstrapping vcpkg in $ENV{VCPKG_ROOT} : ${NODE_ARCH}")
-  if (${NODE_ARCH} STREQUAL "x64")
-    set(VCPKG_TARGET_TRIPLET "x64-windows-static")
-  else()
-    set(VCPKG_TARGET_TRIPLET "x86-windows-static")
-  endif()
-  set(VCPKG_LIBRARY_LINKAGE static)
-  set(CMAKE_PREFIX_PATH $ENV{VCPKG_ROOT}/installed/${VCPKG_TARGET_TRIPLET})
-  set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
-endif()
-
 set(ENABLE_SAMPLE_PROGRAMS OFF CACHE BOOL "")
 
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
@@ -29,6 +17,8 @@ else()
 endif()
 
 option(BUILD_WEBM_DLL "build webm shared library" ON)
+option(ENABLE_FFMPEG  "build with ffmpeg library" ON)
+
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -37,16 +27,22 @@ if(WIN32)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
+if (ENABLE_FFMPEG)
 find_package(FFMPEG REQUIRED)
+endif(ENABLE_FFMPEG)
+
 find_package(OpenSSL REQUIRED)
-find_package(fmt CONFIG REQUIRED)
+find_package(fmt REQUIRED)
 
 add_definitions(-DNAPI_VERSION=8)
 include_directories(${CMAKE_JS_INC})
+
+
+if (ENABLE_FFMPEG)
 include_directories(${FFMPEG_INCLUDE_DIRS})
 link_directories(${FFMPEG_LIBRARY_DIRS})
 link_libraries(${FFMPEG_LIBRARIES})
-
+endif(ENABLE_FFMPEG)
 
 # Include N-API wrappers
 execute_process(COMMAND node -p "require('node-addon-api').include"
@@ -56,7 +52,12 @@ execute_process(COMMAND node -p "require('node-addon-api').include"
 string(REPLACE "\n" "" NODE_ADDON_API_DIR ${NODE_ADDON_API_DIR})
 string(REPLACE "\"" "" NODE_ADDON_API_DIR ${NODE_ADDON_API_DIR})
 
-file(GLOB SOURCE_FILES "src/*.cc" "src/*.c" "src/webvtt/*.cc")
+file(GLOB SOURCE_FILES "src/webvtt/*.cc")
+list(APPEND SOURCE_FILES
+   src/audio-napi.cc
+   src/napi_help.cc
+   src/webm_muxer.cc
+)
 
 set(FFMPEG_SRC
     src/ffmpeg.c
@@ -76,45 +77,62 @@ set(FFMPEG_SRC
   )
 set(FFPROBE_SRC src/ffprobe.c src/cmdutils.c src/opt_common.c)
 
+
+if (ENABLE_FFMPEG)
+  list(APPEND SOURCE_FILES $(FFPROBE_SRC) $(FFMPEG_SRC))
+  list(APPEND SOURCE_FILES src/av_api.cc  src/screen_capturer.cc  src/recorder_api.cc
+        src/combine.cc)
+endif(ENABLE_FFMPEG)
+
 if(MSVC)
   add_definitions(/wd4706 /wd4819 /wd4701 /wd4703)
 endif(MSVC)
 
-add_executable(ffprobe ${FFPROBE_SRC})
-target_compile_options(ffprobe PRIVATE /experimental:c11atomics)
-target_include_directories(ffprobe PRIVATE src src/compat)
+if (ENABLE_FFMPEG)
+  add_executable(ffprobe ${FFPROBE_SRC})
+  target_include_directories(ffprobe PRIVATE src src/compat)
 
-add_executable(ffmpeg ${FFMPEG_SRC})
-target_compile_options(ffmpeg PRIVATE /experimental:c11atomics)
-target_include_directories(ffmpeg PRIVATE src src/compat)
-if(MSVC)
-  target_compile_options(ffprobe PRIVATE /wd4100 /wd4389 /wd4244)
-  target_compile_options(ffmpeg PRIVATE /wd4100 /wd4389 /wd4244)
+  add_executable(ffmpeg ${FFMPEG_SRC})
+  target_include_directories(ffmpeg PRIVATE src src/compat)
+  if(MSVC)
+    target_compile_options(ffmpeg PRIVATE /experimental:c11atomics)
+    target_compile_options(ffprobe PRIVATE /experimental:c11atomics)
+    target_compile_options(ffprobe PRIVATE /wd4100 /wd4389 /wd4244)
+    target_compile_options(ffmpeg PRIVATE /wd4100 /wd4389 /wd4244)
+  endif(MSVC)
+
+
+  add_subdirectory(src/avcpp)
+# add_subdirectory(sample)
+endif(ENABLE_FFMPEG)
 
 add_subdirectory(libwebm)
 
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES} ${CMAKE_JS_SRC})
 target_compile_definitions(${PROJECT_NAME} PRIVATE BUILD_DLL NAPI_DISABLE_CPP_EXCEPTIONS)
 target_include_directories(${PROJECT_NAME} PRIVATE . libwebm src)
-target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} webm fmt::fmt-header-only avcpp)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} webm fmt::fmt)
 if (WIN32)
+  target_compile_options(${PROJECT_NAME} PRIVATE /experimental:c11atomics)
   target_link_libraries(${PROJECT_NAME} PRIVATE delayimp.lib)
+endif()
+if (ENABLE_FFMPEG)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_FFMPEG)
+  target_link_libraries(${PROJECT_NAME} PRIVATE avcpp)
 endif()
 target_include_directories(${PROJECT_NAME} PRIVATE ${NODE_ADDON_API_DIR})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
-target_compile_options(${PROJECT_NAME} PRIVATE /experimental:c11atomics)
 
 if (BUILD_WEBM_DLL)
-  add_library(webmdll SHARED
+  set(WEBMDLL "webmdll")
+  add_library(${WEBMDLL} SHARED
       "src/webvtt/vttreader.cc" "src/webvtt/webvttparser.cc" "src/webm_muxer.cc" "src/sample_muxer_metadata.cc"
   )
-  set_target_properties(webmdll PROPERTIES RUNTIME_OUTPUT_NAME "webm")
-  target_link_libraries(webmdll webm)
-  target_include_directories(webmdll PRIVATE . libwebm)
+  set_target_properties(${WEBMDLL} PROPERTIES OUTPUT_NAME "webm")
+  target_link_libraries(${WEBMDLL} webm)
+  target_include_directories(${WEBMDLL} PRIVATE . libwebm)
 endif()
 
-add_subdirectory(src/avcpp)
-add_subdirectory(sample)
 
 if(MSVC AND CMAKE_JS_NODELIB_DEF AND CMAKE_JS_NODELIB_TARGET)
   # Generate node.lib
@@ -130,25 +148,27 @@ IF( EXISTS "${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json" )
   )
 ENDIF()
 
-if (DEFINED ENV{FFMPEG_ROOT})
-  if (WIN32)
-    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe" "$ENV{FFMPEG_ROOT}/bin/*.dll")
-  else()
-    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/*.so")
-  endif()
-  message(info ">>>COPY: ${FFMPEG_BIN_FILES}")
+if (ENABLE_FFMPEG)
+message(info ">>>>${ffmpeg_PACKAGE_FOLDER_RELEASE}")
 
-  if (WIN32)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
-        DEPENDS $<TARGET_FILE_DIR:ffprobe>/avcodec-60.dll
-      )
-  else()
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
-        DEPENDS $<TARGET_FILE_DIR:ffprobe>
-      )
-  endif()
+if (WIN32)
+  file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe" "$ENV{FFMPEG_ROOT}/bin/*.dll")
 else()
-  message(FATAL "FFMPEG_ROOT not set")
+  file(GLOB FFMPEG_BIN_FILES "${ffmpeg_PACKAGE_FOLDER_RELEASE}/lib/*")
 endif()
+
+message(info ">>> COPY FFmpeg shared files: ${FFMPEG_BIN_FILES}")
+
+if (WIN32)
+  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
+      DEPENDS $<TARGET_FILE_DIR:audio>/avcodec-60.dll
+    )
+else()
+  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
+      DEPENDS $<TARGET_FILE_DIR:audio>
+    )
+endif()
+endif()
+

@@ -12,9 +12,11 @@
 #include <string>
 #include <napi.h>
 
+#ifdef NABLE_FFMPEG
 extern "C" {
 #include <libavutil/avutil.h>
 }
+#endif
 
 #ifdef __APPLE__
 #include <CoreAudio/CoreAudio.h>
@@ -38,7 +40,10 @@ extern "C" {
 #include "webm_muxer.h"
 #include "napi_help.h"
 #include "addon_api.h"
+
+#ifdef NABLE_FFMPEG
 #include "recorder_api.h"
+#endif
 
 #define CHECK(expr)                                                                                \
   {                                                                                                \
@@ -601,12 +606,14 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("record_screen", Napi::Function::New(env, record_screen));
   exports.Set("combine", Napi::Function::New(env, combine));
 
+#ifdef NABLE_FFMPEG
   av_log_set_level(AV_LOG_ERROR);
   if (getenv("JOY_AVLOG")) {
     av_log_set_level(AV_LOG_DEBUG);
   }
 
   Recorder::Init(env, exports);
+#endif
   return exports;
 }
 
