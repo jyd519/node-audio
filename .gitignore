@@ -43,3 +43,6 @@ jspm_packages
 /build32
 /build64
 /.vs/
+/.cache/clangd/index
+/out/build32
+/out/build64

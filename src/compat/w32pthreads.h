@@ -41,7 +41,6 @@
 
 #include "libavutil/attributes.h"
 #include "libavutil/common.h"
-#include "libavutil/internal.h"
 #include "libavutil/mem.h"
 #include "libavutil/time.h"
 
@@ -70,6 +69,11 @@ typedef CONDITION_VARIABLE pthread_cond_t;
 #else
 #define THREADFUNC_RETTYPE unsigned
 #endif
+
+#ifdef _WIN32
+#define attribute_align_arg
+#endif
+
 
 static av_unused THREADFUNC_RETTYPE
 __stdcall attribute_align_arg win32thread_worker(void *arg)

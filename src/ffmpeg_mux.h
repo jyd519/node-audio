@@ -33,7 +33,11 @@
 #include "libavutil/dict.h"
 #include "libavutil/fifo.h"
 
-#include "pthread.h"
+#ifdef _WIN32
+#include "pthread_win32.h"
+#else
+#include <pthread.h>
+#endif
 
 typedef struct MuxStream {
     OutputStream ost;

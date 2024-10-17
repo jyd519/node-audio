@@ -31,7 +31,12 @@
 
 #include "ffmpeg.h"
 #include "thread_queue.h"
-#include "pthread.h"
+
+#ifdef _WIN32
+#include "pthread_win32.h"
+#else
+#include <pthread.h>
+#endif
 
 struct Decoder {
     AVFrame         *frame;
@@ -658,7 +663,7 @@ static void dec_thread_set_name(const InputStream *ist)
     snprintf(name, sizeof(name), "dec%d:%d:%s", ist->file_index, ist->index,
              ist->dec_ctx->codec->name);
 #ifdef _WIN32
-    ff_thread_setname(name);
+    // ff_thread_setname(name);
 #endif
 }
 

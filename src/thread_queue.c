@@ -27,7 +27,7 @@
 
 #include "objpool.h"
 #include "thread_queue.h"
-#include "pthread.h"
+#include "thread.h"
 
 enum {
     FINISHED_SEND = (1 << 0),

@@ -105,7 +105,12 @@
 #include "cmdutils.h"
 #include "ffmpeg.h"
 #include "sync_queue.h"
-#include "pthread.h"
+
+#ifdef _WIN32
+#include "pthread_win32.h"
+#else
+#include <pthread.h>
+#endif
 
 const char program_name[] = "ffmpeg";
 const int program_birth_year = 2000;

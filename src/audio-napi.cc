@@ -599,6 +599,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   ADD_FUNCTION(isMuted)
   ADD_FUNCTION(fixup_webm)
   ADD_FUNCTION(fixup_webm_async)
+#ifdef NABLE_FFMPEG
   ADD_FUNCTION(get_audio_duration)
   ADD_FUNCTION(get_audio_volume_info)
   ADD_FUNCTION(probe)
@@ -606,7 +607,6 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("record_screen", Napi::Function::New(env, record_screen));
   exports.Set("combine", Napi::Function::New(env, combine));
 
-#ifdef NABLE_FFMPEG
   av_log_set_level(AV_LOG_ERROR);
   if (getenv("JOY_AVLOG")) {
     av_log_set_level(AV_LOG_DEBUG);

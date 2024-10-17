@@ -1,5 +1,7 @@
 #include "addon_api.h"
 
+#ifdef NABLE_FFMPEG
+
 #include <stdlib.h>
 
 #include <algorithm>
@@ -327,3 +329,5 @@ Napi::Value combine(const Napi::CallbackInfo &info) {
   int ret = ff_combine(inputs, output.Utf8Value());
   return Napi::Number::New(env, ret);
 }
+
+#endif
