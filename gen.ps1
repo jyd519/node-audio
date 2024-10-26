@@ -2,7 +2,8 @@ param (
     [string]$ffmpeg="OFF"
 )
 
-$env:VCPKG_ROOT="D:/dev/cpp/vcpkg"
+conan install -of "out\build32" --build=missing -pr x86-mt .
+conan install -of "out\build64" --build=missing -pr default-mt .
 
 $env:FFMPEG_ROOT="I:\FFmpeg\out\ffbuild"
 $CONFIG_ARGS="--CDCMAKE_TOOLCHAIN_FILE=./out/build32/conan_toolchain.cmake"

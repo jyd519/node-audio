@@ -3,6 +3,10 @@ const addon = require(".");
 it('fixup_webm sync', () => {
   let r = addon.fixup_webm(`${__dirname}/test.webm`, './a.webm');
   expect(r).toEqual(0);
+  r = addon.fixup_webm(`${__dirname}/中文/test.webm`, './a.webm');
+  expect(r).toEqual(0);
+  r = addon.fixup_webm(`${__dirname}/中文/test.webm`, `${__dirname}/中文/a.webm`);
+  expect(r).toEqual(0);
 });
 
 it('fixup_webm sync failed', () => {

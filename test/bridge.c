@@ -12,7 +12,7 @@ extern int FixWebmFile(char* in, char* out) { // wrapper function
   if (!pfnFixWebmFile) {
 #ifdef _WIN32
     HMODULE h = LoadLibrary("webm.dll");
-    if (!handle) {
+    if (!h) {
       return -1;
     }
     pfnFixWebmFile = (lpfnfixwebmfile)GetProcAddress(h, "FixWebmFile");
