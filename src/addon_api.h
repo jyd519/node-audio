@@ -7,7 +7,7 @@ struct InstanceData {
     Napi::FunctionReference *recorder_ctor = nullptr;
 };
 
-#ifdef NABLE_FFMPEG
+#ifdef ENABLE_FFMPEG
 napi_value get_audio_duration(napi_env env, napi_callback_info info);
 napi_value get_audio_volume_info(napi_env env, napi_callback_info info);
 napi_value probe(napi_env env, napi_callback_info info);

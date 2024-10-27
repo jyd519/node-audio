@@ -1,6 +1,6 @@
 #include "addon_api.h"
 
-#ifdef NABLE_FFMPEG
+#ifdef ENABLE_FFMPEG
 
 #include <stdlib.h>
 

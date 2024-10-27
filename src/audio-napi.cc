@@ -12,7 +12,7 @@
 #include <string>
 #include <napi.h>
 
-#ifdef NABLE_FFMPEG
+#ifdef ENABLE_FFMPEG
 extern "C" {
 #include <libavutil/avutil.h>
 }
@@ -41,7 +41,7 @@ extern "C" {
 #include "napi_help.h"
 #include "addon_api.h"
 
-#ifdef NABLE_FFMPEG
+#ifdef ENABLE_FFMPEG
 #include "recorder_api.h"
 #endif
 
@@ -599,7 +599,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   ADD_FUNCTION(isMuted)
   ADD_FUNCTION(fixup_webm)
   ADD_FUNCTION(fixup_webm_async)
-#ifdef NABLE_FFMPEG
+#ifdef ENABLE_FFMPEG
   ADD_FUNCTION(get_audio_duration)
   ADD_FUNCTION(get_audio_volume_info)
   ADD_FUNCTION(probe)
