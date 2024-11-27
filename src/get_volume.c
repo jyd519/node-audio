@@ -6,6 +6,7 @@
 #include <libavfilter/buffersrc.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
+#include <libavutil/channel_layout.h>
 #include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
 #include "libavutil/log.h"
@@ -29,7 +30,12 @@ typedef struct VolDetectContext {
 
 static int process_frame(VolDetectContext *vd, AVFrame *samples) {
   int nb_samples = samples->nb_samples;
-  int nb_channels = samples->ch_layout.nb_channels;
+#if LIBAVCODEC_VERSION_MAJOR > 58
+  // int nb_channels = samples->ch_layout.nb_channels;
+  int nb_channels = av_get_channel_layout_nb_channels(samples->channel_layout);
+#else
+  int nb_channels = av_get_channel_layout_nb_channels(samples->channel_layout);
+#endif
   int nb_planes = nb_channels;
   int plane, i;
   int16_t *pcm;
@@ -137,6 +143,10 @@ static int build_filter_graph(AVFilterGraph *graph, AVStream *stream,
                               AVFilterContext **sink_ctx) {
   int ret;
   char ch_layout[64];
+#if LIBAVCODEC_VERSION_MAJOR <= 58
+  int nb_channels;
+  uint64_t channel_layout_mask;
+#endif
 
   AVFilter *srcFilter, *outFilter, *aformatFilter;
 
@@ -150,9 +160,14 @@ static int build_filter_graph(AVFilterGraph *graph, AVStream *stream,
     ret = AVERROR(ENOMEM);
     goto end;
   }
-
+#if LIBAVCODEC_VERSION_MAJOR > 58
   av_channel_layout_describe(&stream->codecpar->ch_layout, ch_layout,
                              sizeof(ch_layout));
+#else
+  nb_channels = av_get_channel_layout_nb_channels(stream->codecpar->channel_layout);
+  channel_layout_mask = stream->codecpar->channel_layout;
+  av_get_channel_layout_string(ch_layout, sizeof(ch_layout), nb_channels, channel_layout_mask);
+#endif
   av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
   av_opt_set(
       abuffer_ctx, "sample_fmt",

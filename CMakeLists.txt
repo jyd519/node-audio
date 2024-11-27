@@ -2,19 +2,22 @@ cmake_minimum_required(VERSION 3.27)
 
 project(audio)
 
-# if (DEFINED ENV{VCPKG_ROOT}) message(STATUS "Using
-# VCPKG_ROOT=$ENV{VCPKG_ROOT}")
-# include("$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake") endif()
+set(ENABLE_SAMPLE_PROGRAMS OFF CACHE BOOL "")
 
-set(ENABLE_SAMPLE_PROGRAMS
-    OFF
-    CACHE BOOL "")
+message(STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
+
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "loong64")
+  message(STATUS ">>>>Disable webm info and ts support for loongarch64")
+  set(ENABLE_WEBMINFO OFF CACHE BOOL "")
+  set(ENABLE_WEBMTS OFF CACHE BOOL "")
+endif()
 
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 
 if(APPLE)
   set(CMAKE_INSTALL_RPATH "@executable_path")
@@ -24,6 +27,7 @@ endif()
 
 option(BUILD_WEBM_DLL "build webm shared library" ON)
 option(ENABLE_FFMPEG "build with ffmpeg library" ON)
+option(ENABLE_FFMPEG_FULL "build with ffprobe/ffmpeg" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -33,10 +37,11 @@ if(WIN32)
 endif()
 
 if(ENABLE_FFMPEG)
-  find_package(FFMPEG REQUIRED)
+  find_package(ffmpeg REQUIRED)
 endif(ENABLE_FFMPEG)
 
-# find_package(OpenSSL REQUIRED) find_package(fmt CONFIG REQUIRED)
+# find_package(OpenSSL REQUIRED)
+# find_package(fmt CONFIG REQUIRED)
 
 add_definitions(-DNAPI_VERSION=8)
 include_directories(${CMAKE_JS_INC})
@@ -84,7 +89,10 @@ set(FFMPEG_SRC
 set(FFPROBE_SRC src/ffprobe.c src/cmdutils.c src/opt_common.c)
 
 if(ENABLE_FFMPEG)
-  list(APPEND SOURCE_FILES ${FFPROBE_SRC} ${FFMPEG_SRC})
+  if (ENABLE_FFMPEG_FULL)
+    list(APPEND SOURCE_FILES ${FFPROBE_SRC} ${FFMPEG_SRC})
+  endif(ENABLE_FFMPEG_FULL)
+
   list(
     APPEND
     SOURCE_FILES
@@ -101,12 +109,20 @@ if(MSVC)
   add_definitions(/wd4706 /wd4819 /wd4701 /wd4703)
 endif(MSVC)
 
-if(ENABLE_FFMPEG)
+if (ENABLE_FFMPEG)
+  add_subdirectory(src/avcpp)
+endif()
+
+if(ENABLE_FFMPEG AND ENABLE_FFMPEG_FULL)
   add_executable(ffprobe ${FFPROBE_SRC})
   target_include_directories(ffprobe PRIVATE src src/compat)
 
-  # add_executable(ffmpeg ${FFMPEG_SRC}) target_include_directories(ffmpeg
-  # PRIVATE src src/compat)
+  if (LINUX)
+    target_link_libraries(ffprobe PRIVATE m)
+  endif()
+
+  add_executable(ffmpeg ${FFMPEG_SRC})
+  target_include_directories(ffmpeg PRIVATE src src/compat)
   if(MSVC)
     # target_compile_options(ffmpeg PRIVATE /experimental:c11atomics /std:c11)
     target_compile_options(ffprobe PRIVATE /experimental:c11atomics /std:c11)
@@ -114,9 +130,8 @@ if(ENABLE_FFMPEG)
     # target_compile_options(ffmpeg PRIVATE /wd4100 /wd4389 /wd4244)
   endif(MSVC)
 
-  add_subdirectory(src/avcpp)
   # add_subdirectory(sample)
-endif(ENABLE_FFMPEG)
+endif()
 
 if(BUILD_WEBM_DLL)
   add_subdirectory(libwebm)
@@ -128,16 +143,32 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE BUILD_DLL
 target_include_directories(${PROJECT_NAME} PRIVATE libwebm src)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} webm)
 
+
+message(STATUS "CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR}")
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "loong64")
+  target_link_options(${PROJECT_NAME} PRIVATE "-L=/usr/lib/loongarch64-linux-gnu")
+endif()
+
 if(WIN32)
   target_compile_options(${PROJECT_NAME} PRIVATE /experimental:c11atomics
                                                  /std:c11)
   target_link_libraries(${PROJECT_NAME} PRIVATE delayimp.lib)
+else()
+  target_link_libraries(${PROJECT_NAME} PRIVATE asound)
 endif()
+
 if(ENABLE_FFMPEG)
-  target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_FFMPEG)
+  if (ENABLE_FFMPEG_FULL)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_FFMPEG=2)
+  else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_FFMPEG=1)
+  endif(ENABLE_FFMPEG_FULL)
   target_include_directories(${PROJECT_NAME} PRIVATE ./src/compat)
   target_link_libraries(${PROJECT_NAME} PRIVATE avcpp)
+else()
+  target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_FFMPEG=0)
 endif()
+
 target_include_directories(${PROJECT_NAME} PRIVATE ${NODE_ADDON_API_DIR})
 
 if(ENABLE_FFMPEG)
@@ -153,6 +184,7 @@ if(BUILD_WEBM_DLL)
     ${WEBMDLL} SHARED
     "src/webm_muxer.cc" "src/webvtt/vttreader.cc" "src/webvtt/webvttparser.cc"
     "src/sample_muxer_metadata.cc")
+  target_include_directories(${WEBMDLL} PRIVATE "./libwebm")
   target_link_libraries(${WEBMDLL} webm)
 endif()
 
@@ -176,13 +208,12 @@ if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json")
 endif()
 
 if(ENABLE_FFMPEG)
-  message(info ">>>>${ffmpeg_PACKAGE_FOLDER_RELEASE}")
-
   if(WIN32)
+    message(info ">>>>${ffmpeg_PACKAGE_FOLDER_RELEASE}")
     file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe"
          "$ENV{FFMPEG_ROOT}/bin/*.dll")
   else()
-    file(GLOB FFMPEG_BIN_FILES "${ffmpeg_PACKAGE_FOLDER_RELEASE}/lib/*")
+    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/*")
   endif()
 
   message(info ">>> COPY FFmpeg shared files: ${FFMPEG_BIN_FILES}")
@@ -208,10 +239,18 @@ endif()
 get_filename_component(BUILD_NAME "${CMAKE_CURRENT_BINARY_DIR}" NAME)
 set(BIN_DIR "${CMAKE_SOURCE_DIR}/bin/${BUILD_NAME}")
 
+if(WIN32)
+  set(WEBMNAME "webm.dll")
+elseif (APPLE)
+  set(WEBMNAME "webm.dylib")
+else()
+  set(WEBMNAME "libwebm.so")
+endif()
+
 add_custom_command(
   TARGET audio
   POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory ${BIN_DIR}
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:audio> ${BIN_DIR}/
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${WEBMDLL}>
-          ${BIN_DIR}/webm.dll)
+          ${BIN_DIR}/${WEBMNAME})

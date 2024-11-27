@@ -193,7 +193,7 @@ if (FFMPEG_INCLUDE_DIRS)
 endif ()
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(FFMPEG
+find_package_handle_standard_args(ffmpeg
   REQUIRED_VARS FFMPEG_INCLUDE_DIRS FFMPEG_LIBRARIES ${_ffmpeg_required_vars}
   VERSION_VAR FFMPEG_VERSION
   HANDLE_COMPONENTS)

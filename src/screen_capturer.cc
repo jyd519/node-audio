@@ -59,7 +59,7 @@ inline int round16(int v) { return (v + 15) & ~15; }
 
 int ScreenCapturer::openVideo() {
   int ret = -1;
-  const AVInputFormat *ifmt = av_find_input_format("gdigrab");
+  AVInputFormat *ifmt = av_find_input_format("gdigrab");
   AVDictionary *options = nullptr;
   const AVCodec *decoder = nullptr;
 
@@ -242,13 +242,18 @@ void ScreenCapturer::screenRecordThreadProc() {
   if (openOutput() < 0) {
     return;
   }
-
   // Apply for fps*4 frame buffer
+#if LIBAVCODEC_VERSION_MAJOR > 58
   if ((m_vFifo = av_fifo_alloc2(m_fps * 4, sizeof(AVFrame *), 0)) == nullptr) {
     av_log(nullptr, AV_LOG_ERROR, "av_fifo_alloc2 failed");
     return;
   }
-
+#else
+  if ((m_vFifo = av_fifo_alloc(m_fps * 4 * sizeof(AVFrame *))) == nullptr) {
+    av_log(nullptr, AV_LOG_ERROR, "av_fifo_alloc2 failed");
+    return;
+  }
+#endif
   // Start the video data collection thread
   m_captureThread = std::make_unique<std::thread>(&ScreenCapturer::screenAcquireThreadProc, this);
 
@@ -264,14 +269,30 @@ void ScreenCapturer::screenRecordThreadProc() {
 
     {
       std::unique_lock<std::mutex> lk(m_mtx);
+
+#if LIBAVCODEC_VERSION_MAJOR > 58
       m_cvNotEmpty.wait(lk, [this, &done] { return av_fifo_can_read(m_vFifo) > 0 || done; });
       if (av_fifo_can_read(m_vFifo) < 1 && done) {
         break;
       }
+#else
+      m_cvNotEmpty.wait(lk, [this, &done] { return av_fifo_size(m_vFifo) > 0 || done; });
+      if (av_fifo_size(m_vFifo) < 1 && done) {
+        break;
+      }
+#endif
     }
 
     AVFrame *outFrame = NULL;
+#if LIBAVCODEC_VERSION_MAJOR > 58
     av_fifo_read(m_vFifo, &outFrame, 1);
+#else
+    if (av_fifo_size(m_vFifo) > sizeof(AVFrame*)) {
+      uint8_t *data = NULL;
+      av_fifo_generic_read(m_vFifo, &data, sizeof(AVFrame *), NULL);
+      outFrame = *(AVFrame **)data;
+    }
+#endif
     m_cvNotFull.notify_one();
 
     // Set the video frame parameters
@@ -321,6 +342,29 @@ void ScreenCapturer::screenRecordThreadProc() {
   av_log(nullptr, AV_LOG_INFO, "num of frames encoded: %" PRIi64, m_encodeFrameCnt);
 }
 
+
+#if LIBAVCODEC_VERSION_MAJOR <= 58
+bool avscale_frame(struct SwsContext *swsCtx, AVFrame* oldFrame, AVFrame* newFrame) {
+  int src_w = oldFrame->width;
+  int src_h = oldFrame->height;
+  int src_format = oldFrame->format;
+
+  int dst_w = newFrame->width;
+  int dst_h = newFrame->height;
+  int dst_format = newFrame->format;
+
+  int ret_sws = sws_scale(swsCtx, oldFrame->data, oldFrame->linesize, 0, src_h,
+                          newFrame->data, newFrame->linesize);
+  if (ret_sws < 0) {
+      // 处理sws_scale失败的情况，比如打印错误信息等
+      fprintf(stderr, "sws_scale failed: %d\n", ret_sws);
+      av_log(nullptr, AV_LOG_ERROR, "sws_scale failed: %d", ret_sws);
+      return false;
+  }
+  return true;
+}
+#endif
+
 void ScreenCapturer::screenAcquireThreadProc() {
   int ret = -1;
   AVPacket *pkt = av_packet_alloc();
@@ -369,19 +413,32 @@ void ScreenCapturer::screenAcquireThreadProc() {
 
     ++m_collectFrameCnt;
 
+#if LIBAVCODEC_VERSION_MAJOR > 58
     sws_scale_frame(m_swsCtx, newFrame, oldFrame);
     newFrame->time_base = AV_TIME_BASE_Q;
+#else
+    avscale_frame(m_swsCtx, newFrame, oldFrame);
+#endif
     newFrame->pts = oldFrame->pts;
     newFrame->pkt_dts = oldFrame->pkt_dts;
     av_frame_unref(oldFrame);
 
     {
       std::unique_lock<std::mutex> lk(m_mtx);
+
+#if LIBAVCODEC_VERSION_MAJOR > 58
       m_cvNotFull.wait(lk, [this] { return av_fifo_can_write(m_vFifo) > 0; });
+#else
+      m_cvNotFull.wait(lk, [this] { return av_fifo_space(m_vFifo) > 0; });
+#endif
     }
 
     AVFrame *clone = av_frame_clone(newFrame);
+#if LIBAVCODEC_VERSION_MAJOR > 58
     ret = av_fifo_write(m_vFifo, &clone, 1);
+#else
+    ret = av_fifo_generic_write(m_vFifo, &clone, sizeof(AVFrame*), nullptr);
+#endif
     if (ret < 0) {
       av_frame_free(&clone);
       break;
@@ -453,11 +510,21 @@ void ScreenCapturer::flushDecoder() {
 
     {
       std::unique_lock<std::mutex> lk(m_mtx);
-      m_cvNotFull.wait(lk, [this] { return av_fifo_can_write(m_vFifo) >= 1; });
+#if LIBAVCODEC_VERSION_MAJOR > 58
+      m_cvNotFull.wait(lk, [this] { return av_fifo_can_write(m_vFifo) > 0; });
+#else
+      m_cvNotFull.wait(lk, [this] { return av_fifo_space(m_vFifo) > 0; });
+#endif
+
     }
 
     AVFrame *clone = av_frame_clone(newFrame);
-    ret = av_fifo_write(m_vFifo, clone, 1);
+
+#if LIBAVCODEC_VERSION_MAJOR > 58
+    ret = av_fifo_write(m_vFifo, &clone, 1);
+#else
+    ret = av_fifo_generic_write(m_vFifo, &clone, sizeof(AVFrame*), nullptr);
+#endif
     if (ret < 0) {
       av_log(nullptr, AV_LOG_ERROR, "flush av_fifo_write, ret: %d", ret);
       av_frame_free(&clone);
@@ -517,7 +584,12 @@ void ScreenCapturer::release() {
     avcodec_free_context(&m_vEncodeCtx);
   }
   if (m_vFifo != nullptr) {
+
+#if LIBAVCODEC_VERSION_MAJOR > 58
     av_fifo_freep2(&m_vFifo);
+#else
+    av_fifo_freep(&m_vFifo);
+#endif
   }
   if (m_vFmtCtx != nullptr) {
     avformat_close_input(&m_vFmtCtx);

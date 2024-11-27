@@ -15,6 +15,7 @@ struct AVFormatContext;
 struct AVCodecContext;
 struct AVCodec;
 struct AVFifo;
+struct AVFifoBuffer;
 struct AVAudioFifo;
 struct AVFrame;
 struct SwsContext;
@@ -90,7 +91,12 @@ private:
   AVCodecContext *m_vEncodeCtx = nullptr;
   AVDictionary *m_dict = nullptr;
   SwsContext *m_swsCtx = nullptr;
+
+#if LIBAVCODEC_VERSION_MAJOR > 58
   AVFifo *m_vFifo = nullptr;
+#else
+  AVFifoBuffer* m_vFifo = nullptr;
+#endif
   RecordState m_state;
   int64_t m_collectFrameCnt = 0; // Number of frames collected
   int64_t m_encodeFrameCnt = 0;  // coded frame number
