@@ -58,6 +58,7 @@ linux-loong64:
 							-a loong64 -O ./out/loong64
 
 mac-arm64:
+	conan install . -of build/deps-arm64 --build=missing -s arch=armv8
 	cmake-js rebuild \
 		--CDCMAKE_TOOLCHAIN_FILE=`pwd`/build/deps-arm64/conan_toolchain.cmake \
 		--CDENABLE_FFMPEG=off \
@@ -65,6 +66,7 @@ mac-arm64:
 
 
 mac-x64:
+	conan install . -of build/deps-x64 --build=missing -s arch=x86_64
 	cmake-js rebuild \
 		--CDCMAKE_TOOLCHAIN_FILE=`pwd`/build/deps-x64/conan_toolchain.cmake \
 		--CDENABLE_FFMPEG=off \
