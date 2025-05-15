@@ -17,10 +17,12 @@ const canvas = (window.canvas = document.querySelector("canvas"));
 canvas.width = WIDTH;
 canvas.height = HEIGHT;
 
-const addon = require("../../out/build32/audio.node");
+const path = require("path");
+const addon = require(path.resolve(process.resourcesPath, `audio.node`));
 
 let timer = null;
 let record = false;
+let mp4rtmp;
 let mp4;
 
 const btnStart = document.querySelector("#btn-start");
@@ -93,6 +95,9 @@ function updateImage() {
   const now = new Date().toISOString();
   // ctx.fillText(now.substring(0, now.lastIndexOf(".")), 10, 50);
   drawStroked(ctx, now.substring(0, now.lastIndexOf(".")), 10, 50);
+  if (canvas.width ===0 || canvas.height === 0) {
+    return;
+  }
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const buf = Buffer.from(imageData.data);
   if (record) {
@@ -100,10 +105,10 @@ function updateImage() {
       console.log("write mp4 failed:", false);
       btnStop.click();
     }
-    if (!mp4rtmp.AddImage(buf, canvas.width, canvas.height)) {
-      console.log("rtmp: add failed", false);
-      btnStop.click();
-    }
+    // if (!mp4rtmp.AddImage(buf, canvas.width, canvas.height)) {
+    //   console.log("rtmp: add failed", false);
+    //   btnStop.click();
+    // }
   }
 }
 

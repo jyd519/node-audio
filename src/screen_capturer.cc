@@ -18,95 +18,196 @@ extern "C" {
 
 #include <thread>
 
-inline constexpr auto str2fourcc(const char str[4]) {
-  return ((str[3] << 24) + (str[2] << 16) + (str[1] << 8) + str[0]);
+/**
+ * Convert a 4-character string to a FourCC code
+ * @param str 4-character string
+ * @return FourCC code as uint32_t
+ */
+inline constexpr uint32_t str2fourcc(const char str[4]) {
+  return ((static_cast<uint32_t>(str[3]) << 24) + 
+          (static_cast<uint32_t>(str[2]) << 16) + 
+          (static_cast<uint32_t>(str[1]) << 8) + 
+           static_cast<uint32_t>(str[0]));
 }
 
+/**
+ * Constructor initializes the screen capturer with output file path
+ * @param path Path to the output video file
+ */
 ScreenCapturer::ScreenCapturer(const std::string &path)
-    : m_filePath(path), m_vIndex(-1), m_vOutIndex(-1), m_state(RecordState::NotStarted) {}
+    : m_filePath(path), 
+      m_vIndex(-1), 
+      m_vOutIndex(-1), 
+      m_state(RecordState::NotStarted),
+      m_captureStopped(false) {}
 
-ScreenCapturer::~ScreenCapturer() { stop(); }
+/**
+ * Destructor ensures recording is stopped and resources are released
+ */
+ScreenCapturer::~ScreenCapturer() { 
+  stop(); 
+}
 
+/**
+ * Start or resume screen recording
+ */
 void ScreenCapturer::start() {
   if (m_state == RecordState::NotStarted) {
-    m_state = RecordState::Started;
+    // Initialize counters and start recording thread
     m_collectFrameCnt = 0;
     m_encodeFrameCnt = 0;
-    m_recordThread = std::make_unique<std::thread>(&ScreenCapturer::screenRecordThreadProc, this);
+    m_captureStopped = false;
+    m_state = RecordState::Started;
+    
+    try {
+      m_recordThread = std::make_unique<std::thread>(&ScreenCapturer::screenRecordThreadProc, this);
+    } catch (const std::exception& e) {
+      av_log(nullptr, AV_LOG_ERROR, "Failed to start recording thread: %s", e.what());
+      m_state = RecordState::NotStarted;
+    }
   } else if (m_state == RecordState::Paused) {
+    // Resume from paused state
     m_state = RecordState::Started;
     m_cvNotPause.notify_one();
   }
 }
 
-void ScreenCapturer::pause() { m_state = RecordState::Paused; }
+/**
+ * Pause screen recording
+ */
+void ScreenCapturer::pause() { 
+  if (m_state == RecordState::Started) {
+    m_state = RecordState::Paused; 
+  }
+}
 
+/**
+ * Stop screen recording and clean up resources
+ * @return Number of frames encoded
+ */
 int64_t ScreenCapturer::stop() {
+  // If we're in paused state, notify the thread to resume before stopping
   if (m_state == RecordState::Paused) {
     m_cvNotPause.notify_one();
   }
-  m_state = RecordState::Stopped;
+  
+  // Only proceed if we're actually recording
+  if (m_state != RecordState::NotStarted && m_state != RecordState::Stopped) {
+    m_state = RecordState::Stopped;
 
-  if (m_recordThread->joinable()) {
-    m_cvNotEmpty.notify_one();
-    m_recordThread->join();
+    // Wait for recording thread to finish
+    if (m_recordThread && m_recordThread->joinable()) {
+      m_cvNotEmpty.notify_one();
+      m_recordThread->join();
+    }
   }
 
   return m_encodeFrameCnt;
 }
 
-inline int round16(int v) { return (v + 15) & ~15; }
+/**
+ * Round up to the nearest multiple of 16
+ * @param v Value to round
+ * @return Rounded value
+ */
+inline int round16(int v) { 
+  return (v + 15) & ~15; 
+}
 
 int ScreenCapturer::openVideo() {
   int ret = -1;
-  AVInputFormat *ifmt = av_find_input_format("gdigrab");
+  
+  // Find the GDI screen capture input format
+  const AVInputFormat *ifmt = av_find_input_format("gdigrab");
+  if (!ifmt) {
+    av_log(nullptr, AV_LOG_ERROR, "Could not find gdigrab input format");
+    return -1;
+  }
+  
   AVDictionary *options = nullptr;
   const AVCodec *decoder = nullptr;
 
-  for (auto& v : m_opts) {
+  // Apply user-defined options
+  for (const auto& v : m_opts) {
     av_dict_set(&options, v.first.c_str(), v.second.c_str(), 0);
   }
 
+  // Set capture framerate and probesize
   av_dict_set(&options, "framerate", std::to_string(m_fps).c_str(), 0);
   av_dict_set(&options, "probesize", (std::to_string(m_fps * 2) + "M").c_str(), 0);
 
-  if (avformat_open_input(&m_vFmtCtx, "desktop", ifmt, &options) != 0) {
-    av_log(nullptr, AV_LOG_ERROR, "Cant not open video input stream");
+  // Open the input device
+  ret = avformat_open_input(&m_vFmtCtx, "desktop", ifmt, &options);
+  if (ret != 0) {
+    char error[AV_ERROR_MAX_STRING_SIZE] = {0};
+    av_strerror(ret, error, AV_ERROR_MAX_STRING_SIZE);
+    av_log(nullptr, AV_LOG_ERROR, "Cannot open video input stream: %s", error);
+    av_dict_free(&options);
+    return -1;
+  }
+  av_dict_free(&options);
+
+  // Find stream information
+  ret = avformat_find_stream_info(m_vFmtCtx, nullptr);
+  if (ret < 0) {
+    char error[AV_ERROR_MAX_STRING_SIZE] = {0};
+    av_strerror(ret, error, AV_ERROR_MAX_STRING_SIZE);
+    av_log(nullptr, AV_LOG_ERROR, "Cannot find stream information: %s", error);
     return -1;
   }
 
-  if (avformat_find_stream_info(m_vFmtCtx, nullptr) < 0) {
-    av_log(nullptr, AV_LOG_ERROR, "Cant not find stream information");
-    return -1;
-  }
-
+  // Find the video stream and its decoder
+  bool foundVideoStream = false;
   for (uint32_t i = 0; i < m_vFmtCtx->nb_streams; ++i) {
     AVStream *stream = m_vFmtCtx->streams[i];
     if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
       decoder = avcodec_find_decoder(stream->codecpar->codec_id);
-      if (decoder == nullptr) {
-        av_log(nullptr, AV_LOG_ERROR, "avcodec_find_decoder failed");
+      if (!decoder) {
+        av_log(nullptr, AV_LOG_ERROR, "Cannot find suitable decoder for codec id: %d", stream->codecpar->codec_id);
         return -1;
       }
-      // Copy parameters from the video stream to codecCtx
+      
+      // Allocate and initialize decoder context
       m_vDecodeCtx = avcodec_alloc_context3(decoder);
-      if ((ret = avcodec_parameters_to_context(m_vDecodeCtx, stream->codecpar)) < 0) {
-        av_log(nullptr, AV_LOG_ERROR, "Video avcodec_parameters_to_context failed: %d", ret);
+      if (!m_vDecodeCtx) {
+        av_log(nullptr, AV_LOG_ERROR, "Failed to allocate decoder context");
         return -1;
       }
+      
+      // Copy parameters from the video stream to decoder context
+      ret = avcodec_parameters_to_context(m_vDecodeCtx, stream->codecpar);
+      if (ret < 0) {
+        char error[AV_ERROR_MAX_STRING_SIZE] = {0};
+        av_strerror(ret, error, AV_ERROR_MAX_STRING_SIZE);
+        av_log(nullptr, AV_LOG_ERROR, "Video avcodec_parameters_to_context failed: %s", error);
+        return -1;
+      }
+      
       m_vIndex = i;
+      foundVideoStream = true;
       break;
     }
   }
-
-  m_vDecodeCtx->thread_count = std::thread::hardware_concurrency();
-  m_vDecodeCtx->thread_type = FF_THREAD_SLICE;
-
-  if (avcodec_open2(m_vDecodeCtx, decoder, nullptr) < 0) {
-    av_log(nullptr, AV_LOG_ERROR, "avcodec_open2 failed");
+  
+  if (!foundVideoStream) {
+    av_log(nullptr, AV_LOG_ERROR, "No video stream found");
     return -1;
   }
 
+  // Configure decoder for multithreading
+  m_vDecodeCtx->thread_count = std::thread::hardware_concurrency();
+  m_vDecodeCtx->thread_type = FF_THREAD_SLICE;
+
+  // Open the decoder
+  ret = avcodec_open2(m_vDecodeCtx, decoder, nullptr);
+  if (ret < 0) {
+    char error[AV_ERROR_MAX_STRING_SIZE] = {0};
+    av_strerror(ret, error, AV_ERROR_MAX_STRING_SIZE);
+    av_log(nullptr, AV_LOG_ERROR, "Failed to open decoder: %s", error);
+    return -1;
+  }
+
+  // Use source dimensions if not specified
   if (m_width == 0) {
     m_width = m_vDecodeCtx->width;
   }
@@ -114,29 +215,47 @@ int ScreenCapturer::openVideo() {
     m_height = m_vDecodeCtx->height;
   }
 
-  av_log(nullptr, AV_LOG_INFO, "Capture resolution: %dx%d\n", m_width, m_height);
+  av_log(nullptr, AV_LOG_INFO, "Capture resolution: %dx%d", m_width, m_height);
 
+  // Determine output video dimensions based on input resolution
   m_video_width = m_width;
-  m_video_height= m_height;
-  auto ratio = m_height * 1.0 / m_width;
+  m_video_height = m_height;
+  double ratio = static_cast<double>(m_height) / m_width;
+  
+  // Scale down high resolution captures
   if (m_width >= 4096 && m_height >= 2160) {
     m_video_width = 4096;
-    m_video_height=round16(m_video_width * ratio);
-  } if (m_width >= 3840 && m_height >= 2160) {
+    m_video_height = round16(static_cast<int>(m_video_width * ratio));
+  } else if (m_width >= 3840 && m_height >= 2160) {
     m_video_width = 3840;
-    m_video_height= round16(m_video_width * ratio);
+    m_video_height = round16(static_cast<int>(m_video_width * ratio));
   } else if (m_width >= 1920 && m_height >= 1080) {
     m_video_width = 1920;
-    m_video_height= round16(m_video_width * ratio);
+    m_video_height = round16(static_cast<int>(m_video_width * ratio));
   }
 
-  av_log(nullptr, AV_LOG_INFO, "Video resolution: %dx%d\n", m_video_width, m_video_height);
+  av_log(nullptr, AV_LOG_INFO, "Output video resolution: %dx%d", m_video_width, m_video_height);
 
-  m_swsCtx =
-      sws_getContext(m_vDecodeCtx->width, m_vDecodeCtx->height, m_vDecodeCtx->pix_fmt, m_video_width,
-                     m_video_height, AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+  // Initialize the scaling context for format conversion and resizing
+  m_swsCtx = sws_getContext(
+      m_vDecodeCtx->width,
+      m_vDecodeCtx->height,
+      m_vDecodeCtx->pix_fmt,
+      m_video_width,
+      m_video_height,
+      AV_PIX_FMT_YUV420P,
+      SWS_FAST_BILINEAR,
+      nullptr,
+      nullptr,
+      nullptr
+  );
 
-  return m_swsCtx != nullptr ? 0 : -1;
+  if (!m_swsCtx) {
+    av_log(nullptr, AV_LOG_ERROR, "Failed to initialize scaling context");
+    return -1;
+  }
+  
+  return 0;
 }
 
 int ScreenCapturer::openOutput() {
@@ -455,27 +574,49 @@ void ScreenCapturer::screenAcquireThreadProc() {
   m_captureStopped = true;
 }
 
+/**
+ * Configure encoder parameters for video output
+ */
 void ScreenCapturer::setEncoderParams() {
+  // Validate quality parameter (1-50 range, lower is better quality)
   if ((m_quality < 1) || (m_quality > 50)) {
+    av_log(nullptr, AV_LOG_WARNING, "Invalid quality value %d, using default of 5", m_quality);
     m_quality = 5;
   }
 
+  // Set basic video parameters
   m_vEncodeCtx->width = m_video_width;
   m_vEncodeCtx->height = m_video_height;
   m_vEncodeCtx->codec_type = AVMEDIA_TYPE_VIDEO;
+  
+  // Set time base (1/fps)
   m_vEncodeCtx->time_base.num = 1;
   m_vEncodeCtx->time_base.den = m_fps;
-  if (m_gop > 0)
+  
+  // Set GOP (Group of Pictures) size if specified
+  if (m_gop > 0) {
     m_vEncodeCtx->gop_size = m_gop;
-  m_vEncodeCtx->max_b_frames = 2;
+  } else {
+    // Default GOP size to 2 seconds of frames
+    m_vEncodeCtx->gop_size = m_fps * 2;
+  }
+  
+  // Configure quality parameters
+  m_vEncodeCtx->max_b_frames = 2;  // Use up to 2 B-frames for better compression
   m_vEncodeCtx->qmin = m_quality - (m_quality > 1 ? 1 : 0);
   m_vEncodeCtx->qmax = m_quality + 1;
+  
+  // Set pixel format to YUV420P (widely compatible)
   m_vEncodeCtx->pix_fmt = AV_PIX_FMT_YUV420P;
+  
+  // Set global header flag if needed by the output format
   if (m_oFmtCtx->oformat->flags & AVFMT_GLOBALHEADER) {
     m_vEncodeCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
   }
-  av_dict_set(&m_dict, "preset", "slow", 0);
-  av_dict_set(&m_dict, "rc_mode", "quality", 0);
+  
+  // Set encoder preset and rate control mode
+  av_dict_set(&m_dict, "preset", "slow", 0);  // Slow preset for better quality
+  av_dict_set(&m_dict, "rc_mode", "quality", 0);  // Quality-based rate control
 }
 
 void ScreenCapturer::flushDecoder() {

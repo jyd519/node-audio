@@ -1,263 +1,177 @@
+#include "napi.h"
+#ifdef ENABLE_FFMPEG
 #include "addon_api.h"
-
-#if ENABLE_FFMPEG > 0
 
 #include <stdlib.h>
 
-#include <algorithm>
 #include <string>
 #include <vector>
 #include <sstream>
+#include <memory>
 
 extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/log.h>
 }
 
-#include "napi_help.h"
 #include "ff_help.h"
 #include "addon_api.h"
-
+#include "napi_help.h"
 #include "screen_capturer.h"
 #include "combine.h"
+#include "fixwebm.h"
 
-#include <memory>
 
 // Input: buffer/filename, "video"/"audio" (default)
 // Output: {status, duration}
-napi_value get_audio_duration(napi_env env, napi_callback_info info) {
-  size_t argc = 2;
-  napi_value argv[2];
-  napi_status res;
-  int r;
-  size_t len;
-  std::string in, out;
-  napi_value result = nullptr;
-  int duration = 0;
-  bool is_buffer;
-  void *data;
+Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  
+  if (info.Length() < 1) {
+    Napi::Error::New(env, "Expected string: input file path").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::string in;
+  bool is_buffer = false;
+  void* data = nullptr;
+  size_t length = 0;
   enum AVMediaType media = AVMEDIA_TYPE_AUDIO;
-  size_t length;
+  int duration = 0;
+  int r = 0;
 
-  napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
-  if (argc < 1) {
-    napi_throw_error(env, "EINVAL", "Expected string: input file path");
-    return nullptr;
-  }
-
-  // buffer or filename
-  res = napi_is_buffer(env, argv[0], &is_buffer);
-  if (res != napi_ok || !is_buffer) {
-    if ((res = get_utf8_string(env, argv[0], &in)) != napi_ok) {
-      napi_throw_error(env, "EINVAL", "Something went wrong.");
-      return nullptr;
-    }
+  // Check if first argument is buffer or filename
+  if (info[0].IsBuffer()) {
+    is_buffer = true;
+    Napi::Buffer<uint8_t> buffer = info[0].As<Napi::Buffer<uint8_t>>();
+    data = buffer.Data();
+    length = buffer.Length();
+  } else if (info[0].IsString()) {
+    in = info[0].As<Napi::String>().Utf8Value();
   } else {
-    res = napi_get_buffer_info(env, argv[0], &data, &length);
-    if (res != napi_ok) {
-      napi_throw_error(env, "EINVAL", "invalid buffer");
-      return nullptr;
-    }
+    Napi::Error::New(env, "First argument must be a buffer or string").ThrowAsJavaScriptException();
+    return env.Null();
   }
 
-  if (argc > 1) {
-    std::string type;
-    get_utf8_string(env, argv[1], &type);
+  // Check second argument for media type
+  if (info.Length() > 1 && info[1].IsString()) {
+    std::string type = info[1].As<Napi::String>().Utf8Value();
     if (type == "video") {
       media = AVMEDIA_TYPE_VIDEO;
     }
   }
 
+  // Get duration based on input type
   if (is_buffer) {
-    r = ff_get_av_duration_buffer((const uint8_t *)data, length, media, &duration);
+    r = ff_get_av_duration_buffer(static_cast<const uint8_t*>(data), length, media, &duration);
   } else {
     r = ff_get_av_duration(in.c_str(), media, &duration);
   }
 
-  napi_value v_retcode, v_duration;
-  if ((res = napi_create_int32(env, r, &v_retcode)) != napi_ok)
-    goto end;
-
-  if ((res = napi_create_int32(env, duration, &v_duration)) != napi_ok)
-    goto end;
-
-  if ((res = napi_create_object(env, &result)) != napi_ok)
-    goto end;
-
-  if ((res = napi_set_named_property(env, result, "status", v_retcode)) != napi_ok)
-    goto end;
-
-  if ((res = napi_set_named_property(env, result, "duration", v_duration)) != napi_ok)
-    goto end;
-
-end:
-  if (res != napi_ok) {
-    napi_throw_error(env, "EINVAL", "Something went wrong.");
-    return nullptr;
-  }
+  // Create result object
+  Napi::Object result = Napi::Object::New(env);
+  result.Set("status", Napi::Number::New(env, r));
+  result.Set("duration", Napi::Number::New(env, duration));
 
   return result;
 }
 
-napi_status get_property(napi_env env, napi_value object, const std::string &key,
-                         napi_value *retval) {
-  napi_value result;
-  auto status = napi_get_named_property(env, object, key.c_str(), &result);
-  if (status != napi_ok) {
-    return status;
+Napi::Value get_audio_volume_info(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1) {
+    Napi::TypeError::New(env, "Expected string: input file path").ThrowAsJavaScriptException();
+    return env.Null();
   }
-  return status;
-}
 
-napi_status get_property_int(napi_env env, napi_value object, const std::string &key,
-                             int64_t *retval) {
-  napi_value result;
-  auto status = napi_get_named_property(env, object, key.c_str(), &result);
-  if (status != napi_ok) {
-    return status;
-  }
-  return napi_get_value_int64(env, result, retval);
-}
-
-// Input: filepath, options { start , duration }
-// Output: result { max_volume, mean_volume, status}
-napi_value get_audio_volume_info(napi_env env, napi_callback_info info) {
-  size_t argc = 2;
-  napi_value argv[2];
-  napi_status res;
-  int r;
-  size_t len;
-  std::string in, out;
+  std::string in;
+  bool isBuffer = false;
+  void* data = nullptr;
+  size_t length = 0;
   int64_t start = -1, duration = -1;
-  napi_value result = nullptr;
-  float max_volume, mean_volume;
-  bool is_buffer;
-  void *data;
-  size_t length;
+  float maxVolume, meanVolume;
+  int r = 0;
 
-  napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
-  if (argc < 1) {
-    napi_throw_error(env, "EINVAL", "Expected string: input file path");
-    return nullptr;
+  if (info[0].IsBuffer()) {
+    isBuffer = true;
+    Napi::Buffer<uint8_t> buffer = info[0].As<Napi::Buffer<uint8_t>>();
+    data = buffer.Data();
+    length = buffer.Length();
+  } else if (info[0].IsString()) {
+    in = info[0].As<Napi::String>().Utf8Value();
+  } else {
+    Napi::TypeError::New(env, "First argument must be a buffer or string").ThrowAsJavaScriptException();
+    return env.Null();
   }
 
-  // arg 1:  buffer or filename
-  res = napi_is_buffer(env, argv[0], &is_buffer);
-  if (res != napi_ok || !is_buffer) {
-    if ((res = get_utf8_string(env, argv[0], &in)) != napi_ok) {
-      napi_throw_error(env, "EINVAL", "Something went wrong.");
-      return nullptr;
+  if (info.Length() > 1 && info[1].IsObject()) {
+    Napi::Object opts = info[1].As<Napi::Object>();
+    if (opts.Has("start")) {
+      start = opts.Get("start").As<Napi::Number>().Int64Value();
     }
-  } else {
-    res = napi_get_buffer_info(env, argv[0], &data, &length);
-    if (res != napi_ok) {
-      napi_throw_error(env, "EINVAL", "invalid buffer");
-      return nullptr;
+    if (opts.Has("duration")) {
+      duration = opts.Get("duration").As<Napi::Number>().Int64Value();
     }
   }
 
-  // arg2 ?
-  if (argc > 1) {
-    get_property_int(env, argv[1], "start", &start);
-    get_property_int(env, argv[1], "duration", &duration);
-  }
-
-  // get volume info
-  if (is_buffer) {
-    r = ff_get_audio_volume_buffer((const uint8_t *)data, length, start, duration, &max_volume,
-                                   &mean_volume);
+  if (isBuffer) {
+    r = ff_get_audio_volume_buffer(static_cast<const uint8_t*>(data), length, start, duration, &maxVolume, &meanVolume);
   } else {
-    r = ff_get_audio_volume(in.c_str(), start, duration, &max_volume, &mean_volume);
+    r = ff_get_audio_volume(in.c_str(), start, duration, &maxVolume, &meanVolume);
   }
 
-  napi_value v_retcode, v_max, v_mean;
-  if ((res = napi_create_int32(env, r, &v_retcode)) != napi_ok)
-    goto end;
-
-  if ((res = napi_create_double(env, max_volume, &v_max)) != napi_ok)
-    goto end;
-  if ((res = napi_create_double(env, mean_volume, &v_mean)) != napi_ok)
-    goto end;
-
-  if ((res = napi_create_object(env, &result)) != napi_ok)
-    goto end;
-
-  if ((res = napi_set_named_property(env, result, "status", v_retcode)) != napi_ok)
-    goto end;
-
-  if ((res = napi_set_named_property(env, result, "max_volume", v_max)) != napi_ok)
-    goto end;
-  if ((res = napi_set_named_property(env, result, "mean_volume", v_mean)) != napi_ok)
-    goto end;
-
-end:
-  if (res != napi_ok) {
-    napi_throw_error(env, "EINVAL", "Something went wrong.");
-    return nullptr;
-  }
+  Napi::Object result = Napi::Object::New(env);
+  result.Set("status", Napi::Number::New(env, r));
+  result.Set("max_volume", Napi::Number::New(env, maxVolume));
+  result.Set("mean_volume", Napi::Number::New(env, meanVolume));
 
   return result;
 }
 
-// Input: args
-// Output: result { status, data}
-napi_value probe(napi_env env, napi_callback_info info) {
-  size_t argc = 2;
-  napi_status res;
-  std::vector<napi_value> argv;
-
-  // Get the argument count
-  napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
-  argv.resize(argc);
-  res = napi_get_cb_info(env, info, &argc, argv.data(), NULL, NULL);
-  if (argc < 1) {
-    napi_throw_error(env, "EINVAL", "invalid arguments");
-    return nullptr;
+Napi::Value probe(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1) {
+    Napi::TypeError::New(env, "Invalid arguments").ThrowAsJavaScriptException();
+    return env.Null();
   }
 
-  std::vector<const char *> args;
   std::vector<std::string> argsOwner;
-  {
-    argsOwner.push_back("ffprobe");
-    for (size_t i = 0; i < argc; i++) {
-      std::string s;
-      res = get_utf8_string(env, argv[i], &s);
-      if (res != napi_ok) {
-        napi_throw_error(env, "EINVAL", "argument must be string");
-        return nullptr;
-      }
-      argsOwner.push_back(s);
-    }
+  std::vector<const char*> args;
 
-    std::for_each(argsOwner.begin(), argsOwner.end(),
-                  [&args](const std::string &s) { args.push_back(s.c_str()); });
-    args.push_back(nullptr);
+  argsOwner.push_back("ffprobe");
+  for (size_t i = 0; i < info.Length(); i++) {
+    if (!info[i].IsString()) {
+      Napi::TypeError::New(env, "Argument must be string").ThrowAsJavaScriptException();
+      return env.Null();
+    }
+    argsOwner.push_back(info[i].As<Napi::String>().Utf8Value());
   }
+
+  for (const auto& arg : argsOwner) {
+    args.push_back(arg.c_str());
+  }
+  args.push_back(nullptr);
 
   std::string json;
-  char *out = nullptr;
+  char* out = nullptr;
   int outsize;
-  auto ret = ff_probe(args.size() - 1, args.data(), &out, &outsize);
+  int ret = ff_probe(args.size() - 1, args.data(), &out, &outsize);
   if (ret == 0) {
     json.assign(out, outsize);
     ff_free(out);
-  }
-
-  if (ret != 0) {
+  } else {
     std::stringstream ss;
-    ss << "probe failed: " << ret;
-    napi_throw_error(env, "EINVAL", ss.str().c_str());
-    return nullptr;
+    ss << "Probe failed: " << ret;
+    Napi::TypeError::New(env, ss.str()).ThrowAsJavaScriptException();
+    return env.Null();
   }
 
-  // Parse the string into a JSON object
   napi_value result;
-  ret = JSONParse(env, json, &result);
-  if (ret != napi_ok) {
-    napi_throw_error(env, "EINVAL", "Failed to parse JSON");
-    return nullptr;
+  auto n = JSONParse(env, json, &result);
+  if (n != napi_ok) {
+    Napi::TypeError::New(env, "Failed to parse JSON").ThrowAsJavaScriptException();
+    return env.Null();
   }
-  return result;
+  return Napi::Value::From(env, result);
 }
 
 Napi::Value record_screen(const Napi::CallbackInfo &info) {
@@ -330,4 +244,79 @@ Napi::Value combine(const Napi::CallbackInfo &info) {
   return Napi::Number::New(env, ret);
 }
 
+Napi::Value fixwebmfile(const Napi::CallbackInfo &info) {
+  auto env = info.Env();
+  if (info.Length() < 2) {
+    Napi::TypeError::New(env, "Wrong number of arguments").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto input = info[0].As<Napi::String>().Utf8Value();
+  auto output = info[1].As<Napi::String>().Utf8Value();
+
+  std::map<std::string, std::string> metadata;
+  if (info.Length() > 2 && info[2].IsObject()) {
+    auto metadataObj = info[2].As<Napi::Object>();
+    auto properties = metadataObj.GetPropertyNames();
+    for (uint32_t i = 0; i < properties.Length(); i++) {
+      auto key = properties.Get(i).As<Napi::String>().Utf8Value();
+      auto value = metadataObj.Get(key).As<Napi::String>().Utf8Value();
+      metadata[key] = value;
+    }
+  }
+
+  bool ret = remuxWebmFile(input, output, metadata);
+  return Napi::Boolean::New(env, ret);
+}
+
+class FixWebmWorker : public Napi::AsyncWorker {
+private:
+  std::string input;
+  std::string output;
+  std::map<std::string, std::string> meta;
+  bool result;
+
+public:
+  FixWebmWorker(const std::string &inputPath, const std::string &outputPath,
+                std::map<std::string, std::string> meta, Napi::Promise::Deferred deferred)
+      : Napi::AsyncWorker(deferred.Env()), input(inputPath), output(outputPath), result(false),
+        meta(std::move(meta)), deferred(deferred) {}
+
+  void Execute() override { result = remuxWebmFile(input, output, meta); }
+
+  void OnOK() override { deferred.Resolve(Napi::Boolean::New(Env(), result)); }
+
+  void OnError(const Napi::Error &e) override { deferred.Reject(e.Value()); }
+
+private:
+  Napi::Promise::Deferred deferred;
+};
+
+Napi::Value fixwebmfileAsync(const Napi::CallbackInfo &info) {
+  auto env = info.Env();
+  if (info.Length() < 2) {
+    Napi::TypeError::New(env, "Wrong number of arguments").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto input = info[0].As<Napi::String>().Utf8Value();
+  auto output = info[1].As<Napi::String>().Utf8Value();
+
+  std::map<std::string, std::string> metadata;
+  if (info.Length() > 2 && info[2].IsObject()) {
+    auto metadataObj = info[2].As<Napi::Object>();
+    auto properties = metadataObj.GetPropertyNames();
+    for (uint32_t i = 0; i < properties.Length(); i++) {
+      auto key = properties.Get(i).As<Napi::String>().Utf8Value();
+      auto value = metadataObj.Get(key).As<Napi::String>().Utf8Value();
+      metadata[key] = value;
+    }
+  }
+
+  auto deferred = Napi::Promise::Deferred::New(env);
+  auto worker = new FixWebmWorker(input, output, std::move(metadata), deferred);
+  worker->Queue();
+
+  return deferred.Promise();
+}
 #endif

@@ -9,10 +9,9 @@
 #include <node_api.h>
 #include <stdlib.h>
 
-#include <string>
 #include <napi.h>
 
-#if ENABLE_FFMPEG > 0
+#ifdef ENABLE_FFMPEG
 extern "C" {
 #include <libavutil/avutil.h>
 }
@@ -37,12 +36,13 @@ extern "C" {
 
 #endif
 
-#include "webm_muxer.h"
 #include "napi_help.h"
 #include "addon_api.h"
 
-#if ENABLE_FFMPEG > 0
+#ifdef ENABLE_FFMPEG
 #include "recorder_api.h"
+#else
+#include "webm_muxer.h"
 #endif
 
 #define CHECK(expr)                                                                                \
@@ -473,6 +473,7 @@ napi_value set(napi_env env, napi_callback_info info) {
   return toValue(env, 1);
 }
 
+#ifndef ENABLE_FFMPEG
 napi_value fixup_webm(napi_env env, napi_callback_info info) {
   size_t argc = 2;
   napi_value argv[2];
@@ -580,6 +581,8 @@ static napi_value fixup_webm_async(napi_env env, napi_callback_info info) {
 err:
   return NULL;
 }
+#endif
+
 
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
  InstanceData* instance = new InstanceData();
@@ -597,22 +600,35 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   ADD_FUNCTION(set)
   ADD_FUNCTION(mute)
   ADD_FUNCTION(isMuted)
+#ifndef ENABLE_FFMPEG
   ADD_FUNCTION(fixup_webm)
   ADD_FUNCTION(fixup_webm_async)
-#if ENABLE_FFMPEG > 0
-  ADD_FUNCTION(get_audio_duration)
-  ADD_FUNCTION(get_audio_volume_info)
-#if ENABLE_FFMPEG > 1
-  ADD_FUNCTION(probe)
 #endif
-
+#ifdef ENABLE_FFMPEG
+  exports.Set("get_audio_duration", Napi::Function::New(env, get_audio_duration));
+  exports.Set("get_audio_volume_info", Napi::Function::New(env, get_audio_volume_info));
+  exports.Set("probe", Napi::Function::New(env, probe));
   exports.Set("record_screen", Napi::Function::New(env, record_screen));
   exports.Set("combine", Napi::Function::New(env, combine));
+  exports.Set("fixup_webm", Napi::Function::New(env, fixwebmfile));
+  exports.Set("fixup_webm_async", Napi::Function::New(env, fixwebmfileAsync));
 
   av_log_set_level(AV_LOG_ERROR);
+#ifdef _WIN32
+  // Use safer _dupenv_s on Windows platforms
+  char* env_value = nullptr;
+  size_t len = 0;
+  errno_t err = _dupenv_s(&env_value, &len, "JOY_AVLOG");
+  if (err == 0 && env_value != nullptr) {
+    av_log_set_level(AV_LOG_DEBUG);
+    free(env_value); // Free the allocated memory
+  }
+#else
+  // Use standard getenv on non-Windows platforms
   if (getenv("JOY_AVLOG")) {
     av_log_set_level(AV_LOG_DEBUG);
   }
+#endif
 
   Recorder::Init(env, exports);
 #endif

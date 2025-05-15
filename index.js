@@ -1,12 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 
+const name = "audio.node";
+
 const addon_dir =(function() {
   const rel = process.env.DEBUG ? "Debug" : "Release";
   let p = '';
   console.log(rel, process.env.DEBUG);
   if (process.platform == "win32" || process.platform == "darwin") {
-    p = process.arch == "x64" ? `out/build64/${rel}` : `out/build32/${rel}`;
+    p = process.arch == "x64" ? `bin/build64/${rel}` : `bin/build32/${rel}`;
   } else {
     //linux
     if (process.arch ==="arm64") {
@@ -16,16 +18,18 @@ const addon_dir =(function() {
     }
   }
 
-  if (fs.existsSync(`./${p}/audio.node`)) {
+  if (fs.existsSync(`./${p}/${name}`)) {
     return p;
   }
 
-  if (fs.existsSync(`./${path.dirname(p)}/audio.node`)) {
+  if (fs.existsSync(`./${path.dirname(p)}/${name}`)) {
     return path.dirname(p);
   }
 
 }());
 
-const addon = require(`./${addon_dir}/audio.node`);
+
+console.log(`./${addon_dir}/${name}`);
+const addon = require(`./${addon_dir}/${name}`);
 
 module.exports = addon;
