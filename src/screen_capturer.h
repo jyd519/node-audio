@@ -11,6 +11,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <libavcodec/version_major.h>
+#ifdef __cplusplus
+}
+
+#endif
+#ifdef __cplusplus
+extern "C" {
+#endif
 struct AVFormatContext;
 struct AVCodecContext;
 struct AVCodec;
