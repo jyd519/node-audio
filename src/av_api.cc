@@ -266,7 +266,7 @@ Napi::Value fixwebmfile(const Napi::CallbackInfo &info) {
   }
 
   bool ret = remuxWebmFile(input, output, metadata);
-  return Napi::Boolean::New(env, ret);
+  return Napi::Number::New(env, ret ? 0 : 1);
 }
 
 class FixWebmWorker : public Napi::AsyncWorker {
@@ -284,7 +284,7 @@ public:
 
   void Execute() override { result = remuxWebmFile(input, output, meta); }
 
-  void OnOK() override { deferred.Resolve(Napi::Boolean::New(Env(), result)); }
+  void OnOK() override { deferred.Resolve(Napi::Number::New(Env(), result ? 0 : 1)); }
 
   void OnError(const Napi::Error &e) override { deferred.Reject(e.Value()); }
 

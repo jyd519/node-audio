@@ -2,5 +2,6 @@
 #include "fixwebm.h"
 
 int FixWebmFile(const char* input, const char* output) {
-    return remuxWebmFile(input, output, {});
+    auto ok = remuxWebmFile(input, output, {});
+    return ok ? 0 : 1;
 }
