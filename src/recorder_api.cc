@@ -1,10 +1,14 @@
 #include "recorder_api.h"
 #include "addon_api.h"
+#include "timestamp.h"
+#include "enc_writer.h"
 
 // Maximum number of frames to buffer before dropping frames
 constexpr int MAX_BUF_FRAMES = 30;
 // Number of frames to drop when buffer overflows
 constexpr int FRAMES_TO_DROP = 5;
+// Frame pool: get a frame from the pool or create a new one
+constexpr int FRAME_POOL_MAX = 10;
 
 /**
  * Sets the FFmpeg logging level
@@ -13,13 +17,13 @@ constexpr int FRAMES_TO_DROP = 5;
  */
 static Napi::Value setFFmpegLoggingLevel(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  
+
   // Validate arguments
   if (info.Length() < 1 || !info[0].IsString()) {
     Napi::TypeError::New(env, "String argument expected").ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  
+
   std::string level = info[0].ToString();
   av::set_logging_level(level);
   return Napi::Boolean::New(env, true);
@@ -67,17 +71,18 @@ Napi::Object Recorder::Init(Napi::Env env, Napi::Object exports) {
  */
 Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(info) {
   Napi::Env env = info.Env();
-  
+
   // Validate arguments
   if (info.Length() < 2 || !info[0].IsString() || !info[1].IsObject()) {
-    Napi::TypeError::New(env, "Expected URI string and options object").ThrowAsJavaScriptException();
+    Napi::TypeError::New(env, "Expected URI string and options object")
+        .ThrowAsJavaScriptException();
     hasError = true;
     return;
   }
-  
+
   auto uri = info[0].ToString().Utf8Value();
   auto opts = info[1].ToObject();
-  
+
   // Default configuration values
   int gop = 40;
   int64_t bitrate = 8000 * 1000;
@@ -86,7 +91,7 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
   std::string encoder_opt = "profile=main;rc_mode=bitrate;allow_skip_frames=true";
   std::string comment;
   std::string meta;
-  
+
   // Parse options with structured binding and improved readability
   if (auto v = opts.Get("gop"); v.IsNumber()) {
     gop = v.ToNumber().Int32Value();
@@ -118,9 +123,12 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
   if (auto v = opts.Get("encoder_opt"); v.IsString()) {
     encoder_opt = v.ToString();
   }
+  if (auto v = opts.Get("password"); v.IsString()) {
+    password = v.ToString();
+  }
 
   std::error_code ec;
-  
+
   // Setup output format and encoder
   try {
     ofrmt.setFormat(format, uri);
@@ -128,7 +136,7 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
     if (h264Codec.isNull()) {
       throw std::runtime_error("H264 codec not found");
     }
-    
+
     encoder.setCodec(h264Codec, true);
     octx.setFormat(ofrmt);
     octx.setSocketTimeout(5000); // 5 seconds timeout
@@ -137,10 +145,10 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
     encoder.setWidth(this->width);
     encoder.setHeight(this->height);
     encoder.setPixelFormat(AV_PIX_FMT_YUV420P);
-    encoder.setTimeBase(av::Rational{1, 1000});
+    encoder.setTimeBase({1, fps});
     encoder.setBitRate(bitrate);
     encoder.setGopSize(gop);
-    
+
     // Set global header flag if needed
     if (octx.outputFormat().isFlags(AVFMT_GLOBALHEADER)) {
       encoder.addFlags(AV_CODEC_FLAG_GLOBAL_HEADER);
@@ -152,7 +160,7 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
     if (ec) {
       av_log(nullptr, AV_LOG_WARNING, "Can't parse encoder options: %s\n", ec.message().c_str());
     }
-    
+
     // Open encoder
     encoder.open(options, {}, ec);
     if (ec) {
@@ -162,13 +170,20 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
     }
 
     // Open output context
-    octx.openOutput(uri, ec);
+    if (password.empty() || uri.find("://") != std::string::npos) {
+      octx.openOutput(uri, ec);
+    } else {
+      // We can only encrypt local file
+      auto writer = new EncryptWriter(uri, password);
+      owriter.reset(writer);
+      octx.openOutput(writer, ec);
+    }
     if (ec) {
       av_log(nullptr, AV_LOG_ERROR, "Can't open output: %s\n", ec.message().c_str());
       hasError = true;
       return;
     }
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     av_log(nullptr, AV_LOG_ERROR, "Exception during setup: %s\n", e.what());
     hasError = true;
     return;
@@ -177,17 +192,14 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
   try {
     // Add video stream
     av::Stream ost = octx.addStream(encoder);
-    
-    // Set frame rate - use default if vst is not valid
-    if (videoStream >= 0 && vst.isValid()) {
-      ost.setFrameRate(vst.frameRate());
-    } else {
-      ost.setFrameRate(av::Rational{fps, 1});
-    }
+
+    // Set frame rate
+    ost.setFrameRate(av::Rational{fps, 1});
+    ost.setTimeBase(av::Rational{1, fps});
 
     // Initialize video rescaler
     rescaler = av::VideoRescaler(encoder.width(), encoder.height(), encoder.pixelFormat());
-    
+
     // Debug output of format context
     if (av_log_get_level() >= AV_LOG_DEBUG) {
       octx.dump();
@@ -195,7 +207,7 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
 
     // Handle metadata
     av::Dictionary metaDic = av::Dictionary(octx.raw()->metadata, false);
-    
+
     // Parse metadata string if provided
     if (!meta.empty()) {
       metaDic.parseString(meta, "=", ";", 0, ec);
@@ -203,7 +215,7 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
         av_log(nullptr, AV_LOG_WARNING, "Can't parse meta options: %s\n", ec.message().c_str());
       }
     }
-    
+
     // Add creation time if not present
     if (!metaDic.get("creation_time")) {
       time_t rawtime{};
@@ -218,12 +230,12 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
       strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
       metaDic.set("creation_time", buffer);
     }
-    
+
     // Add comment if provided
     if (!comment.empty()) {
       metaDic.set("comment", comment);
     }
-    
+
     // Transfer metadata ownership if needed
     if (metaDic.isOwning()) {
       octx.raw()->metadata = metaDic.release();
@@ -245,7 +257,7 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
 
     // Start processing thread
     thrd = std::thread(&Recorder::process_frames, this);
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     av_log(nullptr, AV_LOG_ERROR, "Exception during stream setup: %s\n", e.what());
     hasError = true;
   }
@@ -254,9 +266,7 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
 /**
  * Destructor - ensures thread is stopped and resources are cleaned up
  */
-Recorder::~Recorder() { 
-  stop_thread(); 
-}
+Recorder::~Recorder() { stop_thread(); }
 
 /**
  * Close the recorder and stop the processing thread
@@ -275,54 +285,42 @@ Napi::Value Recorder::Close(const Napi::CallbackInfo &info) {
  */
 Napi::Value Recorder::AddImage(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  
-  // Check if recorder is in valid state
   if (hasError || done) {
     return Napi::Boolean::New(env, false);
   }
-
-  // Validate arguments
   if (info.Length() < 3) {
-    Napi::TypeError::New(env, "Expected 3 arguments: buffer, width, height").ThrowAsJavaScriptException();
+    Napi::TypeError::New(env, "Expected 3 arguments: buffer, width, height")
+        .ThrowAsJavaScriptException();
     return env.Undefined();
   }
-
   if (!info[0].IsBuffer()) {
     Napi::TypeError::New(env, "First argument must be a buffer").ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  
   if (!info[1].IsNumber() || !info[2].IsNumber()) {
     Napi::TypeError::New(env, "Width and height must be numbers").ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  
-  // Extract parameters
   auto buf = info[0].As<Napi::Buffer<uint8_t>>();
   auto width_im = info[1].ToNumber().Int32Value();
   auto height_im = info[2].ToNumber().Int32Value();
-  
-  // Validate dimensions
-  if (width_im <= 0 || height_im <= 0 || buf.ByteLength() < static_cast<size_t>(width_im * height_im * 4)) {
-    Napi::RangeError::New(env, "Invalid dimensions or buffer too small").ThrowAsJavaScriptException();
+  if (width_im <= 0 || height_im <= 0 ||
+      buf.ByteLength() < static_cast<size_t>(width_im * height_im * 4)) {
+    Napi::RangeError::New(env, "Invalid dimensions or buffer too small")
+        .ThrowAsJavaScriptException();
     return env.Undefined();
   }
-
   try {
-    // Create video frame from buffer
-    av::VideoFrame frame = av::VideoFrame(
-        static_cast<const uint8_t*>(buf.Data()),
-        buf.ByteLength(),
-        AV_PIX_FMT_RGBA,
-        width_im,
-        height_im
-    );
-
-    // Add frame to processing queue
-    push(frame);
+    // Use frame pool
+    av::VideoFrame frame = get_frame_from_pool();
+    // Re-initialize frame with new data
+    frame = av::VideoFrame(static_cast<const uint8_t *>(buf.Data()), buf.ByteLength(),
+                           AV_PIX_FMT_RGBA, width_im, height_im);
+    push(std::move(frame));
     return Napi::Boolean::New(env, !hasError);
-  } catch (const std::exception& e) {
-    Napi::Error::New(env, std::string("Failed to add image: ") + e.what()).ThrowAsJavaScriptException();
+  } catch (const std::exception &e) {
+    Napi::Error::New(env, std::string("Failed to add image: ") + e.what())
+        .ThrowAsJavaScriptException();
     hasError = true;
     return Napi::Boolean::New(env, false);
   }
@@ -346,15 +344,13 @@ void Recorder::process_frames() {
   std::error_code ec;
   auto flushEncoder = false;
   av::VideoFrame frame;
-  
+
   try {
     while (!flushEncoder) {
-      // Get next frame from queue or set flush flag if queue is empty and done
       auto got = pop(frame);
       if (!got) {
         flushEncoder = true;
       } else {
-        // Rescale frame to output dimensions and format
         frame = rescaler.rescale(frame, ec);
         if (ec) {
           av_log(nullptr, AV_LOG_ERROR, "Can't rescale frame: %s\n", ec.message().c_str());
@@ -362,58 +358,42 @@ void Recorder::process_frames() {
           return;
         }
       }
-
-      // Set presentation timestamp and stream index
       if (frame) {
-        frame.setPts(av::Timestamp{count++, av::Rational(1, this->fps)});
         frame.setStreamIndex(0);
+        frame.setPts({count++, av::Rational(1, this->fps)});
       }
-
-      // Encode and write packets
       bool encodingComplete = false;
       while (!encodingComplete) {
-        // Encode frame (or flush encoder if no frame)
         av::Packet opkt = frame ? encoder.encode(frame, ec) : encoder.encode(ec);
-        
         if (ec) {
           av_log(nullptr, AV_LOG_ERROR, "Encoding error: %s\n", ec.message().c_str());
           hasError = true;
           return;
         } else if (!opkt) {
-          // No packet produced, move to next frame
           encodingComplete = true;
           continue;
         }
-
-        // Set stream index and duration
         opkt.setStreamIndex(0);
-        opkt.setDuration(1, av::Rational(1, this->fps));
-        
-        // Write packet to output
         octx.writePacket(opkt, ec);
         if (ec) {
           if (ec.value() == AVERROR(EAGAIN)) {
-            // Resource temporarily unavailable, try again
             continue;
           }
           av_log(nullptr, AV_LOG_ERROR, "Error writing packet: %s\n", ec.message().c_str());
           hasError = true;
           return;
         }
-        
-        // If we're flushing and got a packet, continue flushing
-        // Otherwise move to next frame
         if (!flushEncoder) {
           encodingComplete = true;
         }
       }
-      
-      // After encoding a frame, reset it for the next iteration
+      // Return frame to pool after use
       if (!flushEncoder) {
+        return_frame_to_pool(std::make_unique<av::VideoFrame>(std::move(frame)));
         frame = av::VideoFrame();
       }
     }
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     av_log(nullptr, AV_LOG_ERROR, "Exception in process_frames: %s\n", e.what());
     hasError = true;
   }
@@ -426,21 +406,19 @@ void Recorder::process_frames() {
 void Recorder::push(av::VideoFrame frame) {
   {
     std::unique_lock<std::mutex> lock(mtx_frames);
-    
-    // Check if buffer is full
     if (frames.size() > MAX_BUF_FRAMES) {
-      // Drop frames to make room
       av_log(nullptr, AV_LOG_WARNING, "Buffer overflow, discarding %d frames\n", FRAMES_TO_DROP);
       frames_dropped += FRAMES_TO_DROP;
-      frames.erase(frames.begin(), frames.begin() + FRAMES_TO_DROP);
+      // Return dropped frames to pool
+      for (int i = 0; i < FRAMES_TO_DROP && !frames.empty(); ++i) {
+        auto &f = frames.front();
+        return_frame_to_pool(std::make_unique<av::VideoFrame>(std::move(f)));
+        frames.pop_front();
+      }
       return;
     }
-    
-    // Add frame to queue
     frames.emplace_back(std::move(frame));
   }
-  
-  // Notify processing thread that a new frame is available
   cv_frames.notify_one();
 }
 
@@ -451,16 +429,10 @@ void Recorder::push(av::VideoFrame frame) {
  */
 bool Recorder::pop(av::VideoFrame &frame) {
   std::unique_lock<std::mutex> lock(mtx_frames);
-  
-  // Wait until a frame is available or we're done
   cv_frames.wait(lock, [this] { return !frames.empty() || done; });
-
-  // If queue is empty and we're done, signal end of processing
   if (frames.empty() && done) {
     return false;
   }
-
-  // Move frame from queue to output parameter
   frame = std::move(frames.front());
   frames.pop_front();
   return true;
@@ -471,6 +443,9 @@ bool Recorder::pop(av::VideoFrame &frame) {
  */
 void Recorder::drop_frames() {
   std::unique_lock<std::mutex> lock(mtx_frames);
+  for (auto &f : frames) {
+    return_frame_to_pool(std::make_unique<av::VideoFrame>(std::move(f)));
+  }
   frames.clear();
 }
 
@@ -486,22 +461,42 @@ void Recorder::stop_thread() {
       done = true;
     }
     cv_frames.notify_one();
-    
+
     // Wait for thread to finish
     if (thrd.joinable()) {
       thrd.join();
     }
-    
+
     // Write trailer and close output
     std::error_code ec;
     octx.writeTrailer(ec);
     if (ec) {
       av_log(nullptr, AV_LOG_WARNING, "Error writing trailer: %s\n", ec.message().c_str());
     }
-    
+
     octx.close();
+    owriter.reset();
   }
-  
+
   // Clear any remaining frames
   drop_frames();
+}
+
+// Frame pool: get a frame from the pool or create a new one
+av::VideoFrame Recorder::get_frame_from_pool() {
+  std::lock_guard<std::mutex> lock(mtx_pool);
+  if (!frame_pool.empty()) {
+    auto frame_ptr = std::move(frame_pool.back());
+    frame_pool.pop_back();
+    return std::move(*frame_ptr);
+  }
+  return av::VideoFrame();
+}
+
+void Recorder::return_frame_to_pool(std::unique_ptr<av::VideoFrame> frame) {
+  std::lock_guard<std::mutex> lock(mtx_pool);
+  if (frame_pool.size() < FRAME_POOL_MAX) {
+    frame_pool.push_back(std::move(frame));
+  }
+  // else let unique_ptr delete it
 }

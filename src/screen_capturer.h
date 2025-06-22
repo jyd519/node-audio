@@ -33,6 +33,8 @@ struct AVDictionary;
 }
 #endif
 
+class EncryptWriter;
+
 class ScreenCapturer {
 public:
   enum RecordState {
@@ -52,6 +54,8 @@ public:
     m_width = w;
     m_height = h;
   }
+
+  void set_password(const std::string& password) { m_password = password; }
   void set_quality(int quality) { m_quality = quality; }
   void set_title(const std::string &title) { m_title = title; }
   void set_comment(const std::string &comment) { m_comment = comment; }
@@ -79,6 +83,7 @@ private:
   std::string m_filePath;
   std::string m_title;
   std::string m_comment;
+  std::string m_password;
   int m_quality = 10;
   int m_width = 0;
   int m_height = 0;
@@ -99,6 +104,7 @@ private:
   AVCodecContext *m_vEncodeCtx = nullptr;
   AVDictionary *m_dict = nullptr;
   SwsContext *m_swsCtx = nullptr;
+  std::unique_ptr<EncryptWriter> m_owriter;
 
 #if LIBAVCODEC_VERSION_MAJOR > 58
   AVFifo *m_vFifo = nullptr;

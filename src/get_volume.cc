@@ -1,5 +1,8 @@
 #include <assert.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <libavcodec/avcodec.h>
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
@@ -10,14 +13,16 @@
 #include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
 #include "libavutil/log.h"
+#ifdef __cplusplus
+}
+#endif
 
 #include "ff_help.h"
 #include "buffer_io.h"
+#include "enc_reader.h"
 
-
-static int _get_audio_volume(AVFormatContext *formatContext, int64_t start,
-                             int64_t duration, float *max_volume,
-                             float *mean_volume);
+static int _get_audio_volume(AVFormatContext *formatContext, int64_t start, int64_t duration,
+                             float *max_volume, float *mean_volume);
 
 typedef struct VolDetectContext {
   /**
@@ -104,8 +109,7 @@ static void print_stats(VolDetectContext *vd) {
   }
 }
 
-static void get_stats(VolDetectContext *vd, float *max_volume,
-                      float *mean_volume) {
+static void get_stats(VolDetectContext *vd, float *max_volume, float *mean_volume) {
   int i, shift, maxvolume;
   uint64_t nb_samples = 0, power = 0, nb_samples_shift = 0, sum = 0;
   uint64_t histdb[MAX_DB + 1] = {0};
@@ -132,14 +136,12 @@ static void get_stats(VolDetectContext *vd, float *max_volume,
   *mean_volume = -logdb(power);
 
   maxvolume = 0x8000;
-  while (maxvolume > 0 && !vd->histogram[0x8000 + maxvolume] &&
-         !vd->histogram[0x8000 - maxvolume])
+  while (maxvolume > 0 && !vd->histogram[0x8000 + maxvolume] && !vd->histogram[0x8000 - maxvolume])
     maxvolume--;
   *max_volume = -logdb(maxvolume * maxvolume);
 }
 
-static int build_filter_graph(AVFilterGraph *graph, AVStream *stream,
-                              AVFilterContext **src_ctx,
+static int build_filter_graph(AVFilterGraph *graph, AVStream *stream, AVFilterContext **src_ctx,
                               AVFilterContext **sink_ctx) {
   int ret;
   char ch_layout[64];
@@ -152,29 +154,26 @@ static int build_filter_graph(AVFilterGraph *graph, AVStream *stream,
 
   AVFilterContext *abuffer_ctx =
       avfilter_graph_alloc_filter(graph, avfilter_get_by_name("abuffer"), "in");
-  AVFilterContext *abuffersink_ctx = avfilter_graph_alloc_filter(
-      graph, avfilter_get_by_name("abuffersink"), "out");
-  AVFilterContext *aformat_ctx = avfilter_graph_alloc_filter(
-      graph, avfilter_get_by_name("aformat"), "aformat");
+  AVFilterContext *abuffersink_ctx =
+      avfilter_graph_alloc_filter(graph, avfilter_get_by_name("abuffersink"), "out");
+  AVFilterContext *aformat_ctx =
+      avfilter_graph_alloc_filter(graph, avfilter_get_by_name("aformat"), "aformat");
   if (aformat_ctx == NULL || abuffer_ctx == NULL || abuffersink_ctx == NULL) {
     ret = AVERROR(ENOMEM);
     goto end;
   }
 #if LIBAVCODEC_VERSION_MAJOR > 58
-  av_channel_layout_describe(&stream->codecpar->ch_layout, ch_layout,
-                             sizeof(ch_layout));
+  av_channel_layout_describe(&stream->codecpar->ch_layout, ch_layout, sizeof(ch_layout));
 #else
   nb_channels = av_get_channel_layout_nb_channels(stream->codecpar->channel_layout);
   channel_layout_mask = stream->codecpar->channel_layout;
   av_get_channel_layout_string(ch_layout, sizeof(ch_layout), nb_channels, channel_layout_mask);
 #endif
   av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
-  av_opt_set(
-      abuffer_ctx, "sample_fmt",
-      av_get_sample_fmt_name((enum AVSampleFormat)stream->codecpar->format),
-      AV_OPT_SEARCH_CHILDREN);
-  av_opt_set_int(abuffer_ctx, "sample_rate", stream->codecpar->sample_rate,
-                 AV_OPT_SEARCH_CHILDREN);
+  av_opt_set(abuffer_ctx, "sample_fmt",
+             av_get_sample_fmt_name((enum AVSampleFormat)stream->codecpar->format),
+             AV_OPT_SEARCH_CHILDREN);
+  av_opt_set_int(abuffer_ctx, "sample_rate", stream->codecpar->sample_rate, AV_OPT_SEARCH_CHILDREN);
 
   ret = avfilter_init_str(abuffer_ctx, NULL);
   if (ret < 0) {
@@ -217,9 +216,8 @@ end:
   return ret;
 }
 
-EXPORTED int ff_get_audio_volume_buffer(const uint8_t *buf, int buf_size,
-                                        int64_t start, int64_t duration,
-                                        float *max_volume, float *mean_volume) {
+EXPORTED int ff_get_audio_volume_buffer(const uint8_t *buf, int buf_size, int64_t start,
+                                        int64_t duration, float *max_volume, float *mean_volume) {
   AVFormatContext *fmt_ctx = NULL;
   AVIOContext *avio_ctx = NULL;
   uint8_t *avio_ctx_buffer = NULL;
@@ -235,13 +233,13 @@ EXPORTED int ff_get_audio_volume_buffer(const uint8_t *buf, int buf_size,
     goto end;
   }
 
-  avio_ctx_buffer = (uint8_t*)av_malloc(avio_ctx_buffer_size);
+  avio_ctx_buffer = (uint8_t *)av_malloc(avio_ctx_buffer_size);
   if (!avio_ctx_buffer) {
     ret = AVERROR(ENOMEM);
     goto end;
   }
-  avio_ctx = avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0, &bd,
-                                &read_packet, NULL, NULL);
+  avio_ctx =
+      avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0, &bd, &read_packet, NULL, NULL);
   if (!avio_ctx) {
     ret = AVERROR(ENOMEM);
     goto end;
@@ -265,10 +263,8 @@ end:
   return ret;
 }
 
-
-EXPORTED int ff_get_audio_volume_callback(read_packet_t read_packet,
-                                          int64_t start, int64_t duration,
-                                          float *max_volume, float *mean_volume,
+EXPORTED int ff_get_audio_volume_callback(read_packet_t read_packet, int64_t start,
+                                          int64_t duration, float *max_volume, float *mean_volume,
                                           void *ctx) {
 
   AVFormatContext *fmt_ctx = NULL;
@@ -282,13 +278,14 @@ EXPORTED int ff_get_audio_volume_callback(read_packet_t read_packet,
     goto end;
   }
 
-  avio_ctx_buffer = (uint8_t*)av_malloc(avio_ctx_buffer_size);
+  avio_ctx_buffer = (uint8_t *)av_malloc(avio_ctx_buffer_size);
   if (!avio_ctx_buffer) {
     ret = AVERROR(ENOMEM);
     goto end;
   }
 
-  avio_ctx = avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0, ctx, read_packet, NULL, NULL);
+  avio_ctx =
+      avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0, ctx, read_packet, NULL, NULL);
   if (!avio_ctx) {
     ret = AVERROR(ENOMEM);
     goto end;
@@ -310,31 +307,57 @@ end:
   avio_context_free(&avio_ctx);
 
   return ret;
-
 }
 
+EXPORTED int ff_get_audio_volume(const char *filename, const char *password, int64_t start,
+                                 int64_t duration, float *max_volume, float *mean_volume) {
+  AVFormatContext *fmt_ctx = NULL;
+  int ret = -1;
+  AVIOContext *avio_ctx = NULL;
+  unsigned char *avio_ctx_buffer = NULL;
+  av::CustomIO* io = NULL;
+  int avio_ctx_buffer_size = 32*1024;
 
-EXPORTED int ff_get_audio_volume(const char *filename, int64_t start,
-                                 int64_t duration, float *max_volume,
-                                 float *mean_volume) {
-  AVFormatContext *formatContext = NULL;
-  int ret;
-
+  if (is_enc_file(filename)) {
+    io = new EncryptReader(filename, password);
+    if (!(fmt_ctx = avformat_alloc_context())) {
+      ret = AVERROR(ENOMEM);
+      goto end;
+    }
+    avio_ctx_buffer = (unsigned char*)av_malloc(avio_ctx_buffer_size);
+    if (!avio_ctx_buffer) {
+      ret = AVERROR(ENOMEM);
+      goto end;
+    }
+    avio_ctx = avio_alloc_context(avio_ctx_buffer, avio_ctx_buffer_size, 0,
+                                  (void*)io, &customio_read, NULL, &customio_seek);
+    if (!avio_ctx) {
+      ret = AVERROR(ENOMEM);
+      goto end;
+    }
+    fmt_ctx->pb = avio_ctx;
+    fmt_ctx->flags |= AVFMT_FLAG_CUSTOM_IO;
+  }
   // Open the input file
-  if (avformat_open_input(&formatContext, filename, NULL, NULL) != 0) {
+  if (avformat_open_input(&fmt_ctx, filename, NULL, NULL) != 0) {
     return AVERROR(EINVAL);
   }
 
-  ret = _get_audio_volume(formatContext, start, duration, max_volume,
-                          mean_volume);
+  ret = _get_audio_volume(fmt_ctx, start, duration, max_volume, mean_volume);
 
-  avformat_close_input(&formatContext);
+end:
+  avformat_close_input(&fmt_ctx);
+
+  if  (avio_ctx) {
+    av_freep(&avio_ctx->buffer);
+    avio_context_free(&avio_ctx);
+  }
 
   return ret;
 }
 
-int _get_audio_volume(AVFormatContext *formatContext, int64_t start,
-                      int64_t duration, float *max_volume, float *mean_volume) {
+int _get_audio_volume(AVFormatContext *formatContext, int64_t start, int64_t duration,
+                      float *max_volume, float *mean_volume) {
   AVStream *stream = NULL;
   int stream_index = -1;
   AVFrame *frame = NULL;
@@ -348,8 +371,8 @@ int _get_audio_volume(AVFormatContext *formatContext, int64_t start,
   int64_t start_time = -1, end_time = -1;
   int ret;
 
-  *max_volume = - MAX_DB;
-  *mean_volume = - MAX_DB;
+  *max_volume = -MAX_DB;
+  *mean_volume = -MAX_DB;
 
   // Find the audio stream
   ret = avformat_find_stream_info(formatContext, NULL);
@@ -415,12 +438,10 @@ int _get_audio_volume(AVFormatContext *formatContext, int64_t start,
   vd = (VolDetectContext *)av_mallocz(sizeof(VolDetectContext));
 
   if (start > 0) {
-    start_time =
-        av_rescale_q(start * 1000000, AV_TIME_BASE_Q, stream->time_base);
+    start_time = av_rescale_q(start * 1000000, AV_TIME_BASE_Q, stream->time_base);
   }
   if (duration > 0) {
-    end_time = av_rescale_q(1000000 * (start + duration), AV_TIME_BASE_Q,
-                            stream->time_base);
+    end_time = av_rescale_q(1000000 * (start + duration), AV_TIME_BASE_Q, stream->time_base);
   }
 
   if (start_time > 0) {

@@ -26,13 +26,14 @@ extern "C" {
 // Output: {status, duration}
 Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  
+
   if (info.Length() < 1) {
     Napi::Error::New(env, "Expected string: input file path").ThrowAsJavaScriptException();
     return env.Null();
   }
 
   std::string in;
+  std::string password;
   bool is_buffer = false;
   void* data = nullptr;
   size_t length = 0;
@@ -54,10 +55,26 @@ Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
   }
 
   // Check second argument for media type
-  if (info.Length() > 1 && info[1].IsString()) {
-    std::string type = info[1].As<Napi::String>().Utf8Value();
-    if (type == "video") {
-      media = AVMEDIA_TYPE_VIDEO;
+  if (info.Length() > 1) {
+    if (info[1].IsString()) {
+      std::string type = info[1].As<Napi::String>().Utf8Value();
+      if (type == "video") {
+        media = AVMEDIA_TYPE_VIDEO;
+      }
+    } else if(info[1].IsObject()) {
+      Napi::Object opts = info[1].As<Napi::Object>();
+      if (opts.Has("media")) {
+        std::string type = opts.Get("media").As<Napi::String>().Utf8Value();
+        if (type == "video") {
+          media = AVMEDIA_TYPE_VIDEO;
+        }
+      }
+      if (opts.Has("password")) {
+        password = opts.Get("password").As<Napi::String>().Utf8Value();
+      }
+    } else {
+      Napi::Error::New(env, "Second argument must be a string or object").ThrowAsJavaScriptException();
+      return env.Null();
     }
   }
 
@@ -65,7 +82,7 @@ Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
   if (is_buffer) {
     r = ff_get_av_duration_buffer(static_cast<const uint8_t*>(data), length, media, &duration);
   } else {
-    r = ff_get_av_duration(in.c_str(), media, &duration);
+    r = ff_get_av_duration(in.c_str(), password.c_str(), media, &duration);
   }
 
   // Create result object
@@ -83,7 +100,7 @@ Napi::Value get_audio_volume_info(const Napi::CallbackInfo& info) {
     return env.Null();
   }
 
-  std::string in;
+  std::string in, password;
   bool isBuffer = false;
   void* data = nullptr;
   size_t length = 0;
@@ -111,12 +128,15 @@ Napi::Value get_audio_volume_info(const Napi::CallbackInfo& info) {
     if (opts.Has("duration")) {
       duration = opts.Get("duration").As<Napi::Number>().Int64Value();
     }
+    if (opts.Has("password")) {
+      password = opts.Get("password").ToString();
+    }
   }
 
   if (isBuffer) {
     r = ff_get_audio_volume_buffer(static_cast<const uint8_t*>(data), length, start, duration, &maxVolume, &meanVolume);
   } else {
-    r = ff_get_audio_volume(in.c_str(), start, duration, &maxVolume, &meanVolume);
+    r = ff_get_audio_volume(in.c_str(), password.c_str(), start, duration, &maxVolume, &meanVolume);
   }
 
   Napi::Object result = Napi::Object::New(env);
@@ -184,6 +204,11 @@ Napi::Value record_screen(const Napi::CallbackInfo &info) {
   auto capturer = std::make_shared<ScreenCapturer>(filepath);
   if (info.Length() > 1) {
     auto opts = info[1].As<Napi::Object>();
+    if (opts.Has("password")) {
+      auto password = opts.Get("password").As<Napi::String>().Utf8Value();
+      capturer->set_password(password);
+      opts.Delete("password");
+    }
     if (opts.Has("quality")) {
       capturer->set_quality(opts.Get("quality").As<Napi::Number>().Int32Value());
       opts.Delete("quality");

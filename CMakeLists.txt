@@ -31,6 +31,7 @@ option(ENABLE_FFMPEG_FULL "build with ffprobe/ffmpeg" ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 if(WIN32)
+  add_compile_options(/utf-8)
   add_compile_definitions(UNICODE _UNICODE)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
@@ -39,10 +40,8 @@ if(ENABLE_FFMPEG)
   find_package(ffmpeg REQUIRED)
 endif(ENABLE_FFMPEG)
 
-# find_package(OpenSSL REQUIRED) find_package(fmt CONFIG REQUIRED)
-
-add_definitions(-DNAPI_VERSION=8)
-include_directories(${CMAKE_JS_INC})
+find_package(OpenSSL REQUIRED)
+# find_package(fmt CONFIG REQUIRED)
 
 if(ENABLE_FFMPEG)
   include_directories(${FFMPEG_INCLUDE_DIRS})
@@ -58,7 +57,7 @@ execute_process(
 string(REPLACE "\n" "" NODE_ADDON_API_DIR ${NODE_ADDON_API_DIR})
 string(REPLACE "\"" "" NODE_ADDON_API_DIR ${NODE_ADDON_API_DIR})
 
-set (SOURCE_FILES  
+set (SOURCE_FILES
   src/audio-napi.cc
   src/napi_help.cc
 )
@@ -69,6 +68,8 @@ else()
   file(GLOB WEBVTT_FILES "src/webvtt/*.cc")
   list(APPEND SOURCE_FILES ${WEBVTT_FILES} "src/webm_muxer.cc" "src/sample_muxer_metadata.cc")
 endif()
+
+add_subdirectory(src/encrypt)
 
 set(FFMPEG_SRC
     src/ffmpeg.c
@@ -97,10 +98,13 @@ if(ENABLE_FFMPEG)
     src/av_api.cc
     src/screen_capturer.cc
     src/recorder_api.cc
-    src/duration.c
+    src/duration.cc
     src/combine.cc
     src/buffer_io.c
-    src/get_volume.c)
+    src/get_volume.cc
+    src/encrypt/joye_writer.c
+    src/encrypt/joye_reader.c
+  )
 endif(ENABLE_FFMPEG)
 
 if(MSVC)
@@ -109,7 +113,7 @@ endif(MSVC)
 
 if(ENABLE_FFMPEG)
   add_executable(ffprobe ${FFPROBE_SRC})
-  target_include_directories(ffprobe PRIVATE src src/compat)
+  target_include_directories(ffprobe PRIVATE src src/compat src/encrypt)
 
   # add_executable(ffmpeg ${FFMPEG_SRC}) target_include_directories(ffmpeg
   # PRIVATE src src/compat)
@@ -126,15 +130,19 @@ endif(ENABLE_FFMPEG)
 
 if(BUILD_WEBM_DLL AND NOT ENABLE_FFMPEG)
   add_subdirectory(libwebm)
-endif(BUILD_WEBM_DLL)
+endif()
 
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES} ${CMAKE_JS_SRC})
 target_compile_definitions(${PROJECT_NAME} PRIVATE BUILD_DLL
-                                                   NAPI_DISABLE_CPP_EXCEPTIONS)
+                                                   NAPI_DISABLE_CPP_EXCEPTIONS
+                                                   NAPI_VERSION=8
+                                                 )
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_JS_INC})
 
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 if (ENABLE_FFMPEG)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB})
+  target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} OpenSSL::Crypto OpenSSL::SSL)
 else()
   target_include_directories(${PROJECT_NAME} PRIVATE libwebm src)
   target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} webm)

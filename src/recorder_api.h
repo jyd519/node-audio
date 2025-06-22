@@ -11,12 +11,14 @@
 // API2
 #include "format.h"
 #include "formatcontext.h"
-#include "codec.h"
 #include "codeccontext.h"
 
 #include <thread>
 #include <deque>
 #include <condition_variable>
+#include <vector>
+
+class EncryptWriter;
 
 class Recorder : public Napi::ObjectWrap<Recorder> {
   public:
@@ -25,14 +27,15 @@ class Recorder : public Napi::ObjectWrap<Recorder> {
     ~Recorder();
   private:
     bool hasError = false;
+    std::string password;
     av::FormatContext ictx;
     int videoStream = -1;
     av::VideoDecoderContext vdec;
-    av::Stream vst;
-    int count = 0;
+    int64_t count = 0;
     int fps = 15;
     int width  = 800;
     int height = 600;
+    std::unique_ptr<EncryptWriter> owriter;
 
     av::OutputFormat ofrmt;
     av::FormatContext octx;
@@ -45,6 +48,13 @@ class Recorder : public Napi::ObjectWrap<Recorder> {
     std::deque<av::VideoFrame> frames;
     std::mutex mtx_frames;
     std::condition_variable cv_frames;
+
+    // Frame pool for memory reuse
+    std::vector<std::unique_ptr<av::VideoFrame>> frame_pool;
+    std::mutex mtx_pool;
+
+    av::VideoFrame get_frame_from_pool();
+    void return_frame_to_pool(std::unique_ptr<av::VideoFrame> frame);
 
     void push(av::VideoFrame frame);
     bool pop(av::VideoFrame& frame);

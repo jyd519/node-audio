@@ -7,6 +7,9 @@ const addon_dir =(function() {
   const rel = process.env.DEBUG ? "Debug" : "Release";
   let p = '';
   console.log(rel, process.env.DEBUG);
+  if (process.env.DEBUG && process.platform == "win32") {
+    return '.\\out\\build64d\\Debug';
+  }
   if (process.platform == "win32" || process.platform == "darwin") {
     p = process.arch == "x64" ? `bin/build64/${rel}` : `bin/build32/${rel}`;
   } else {
@@ -29,7 +32,7 @@ const addon_dir =(function() {
 }());
 
 
-console.log(`./${addon_dir}/${name}`);
+console.log(`>>  ./${addon_dir}/${name}`);
 const addon = require(`./${addon_dir}/${name}`);
 
 module.exports = addon;

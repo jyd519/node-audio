@@ -18,15 +18,17 @@ extern "C" {
 
 #include <thread>
 
+#include "enc_writer.h"
+
 /**
  * Convert a 4-character string to a FourCC code
  * @param str 4-character string
  * @return FourCC code as uint32_t
  */
 inline constexpr uint32_t str2fourcc(const char str[4]) {
-  return ((static_cast<uint32_t>(str[3]) << 24) + 
-          (static_cast<uint32_t>(str[2]) << 16) + 
-          (static_cast<uint32_t>(str[1]) << 8) + 
+  return ((static_cast<uint32_t>(str[3]) << 24) +
+          (static_cast<uint32_t>(str[2]) << 16) +
+          (static_cast<uint32_t>(str[1]) << 8) +
            static_cast<uint32_t>(str[0]));
 }
 
@@ -35,17 +37,17 @@ inline constexpr uint32_t str2fourcc(const char str[4]) {
  * @param path Path to the output video file
  */
 ScreenCapturer::ScreenCapturer(const std::string &path)
-    : m_filePath(path), 
-      m_vIndex(-1), 
-      m_vOutIndex(-1), 
+    : m_filePath(path),
+      m_vIndex(-1),
+      m_vOutIndex(-1),
       m_state(RecordState::NotStarted),
       m_captureStopped(false) {}
 
 /**
  * Destructor ensures recording is stopped and resources are released
  */
-ScreenCapturer::~ScreenCapturer() { 
-  stop(); 
+ScreenCapturer::~ScreenCapturer() {
+  stop();
 }
 
 /**
@@ -58,7 +60,7 @@ void ScreenCapturer::start() {
     m_encodeFrameCnt = 0;
     m_captureStopped = false;
     m_state = RecordState::Started;
-    
+
     try {
       m_recordThread = std::make_unique<std::thread>(&ScreenCapturer::screenRecordThreadProc, this);
     } catch (const std::exception& e) {
@@ -75,9 +77,9 @@ void ScreenCapturer::start() {
 /**
  * Pause screen recording
  */
-void ScreenCapturer::pause() { 
+void ScreenCapturer::pause() {
   if (m_state == RecordState::Started) {
-    m_state = RecordState::Paused; 
+    m_state = RecordState::Paused;
   }
 }
 
@@ -90,7 +92,7 @@ int64_t ScreenCapturer::stop() {
   if (m_state == RecordState::Paused) {
     m_cvNotPause.notify_one();
   }
-  
+
   // Only proceed if we're actually recording
   if (m_state != RecordState::NotStarted && m_state != RecordState::Stopped) {
     m_state = RecordState::Stopped;
@@ -110,20 +112,20 @@ int64_t ScreenCapturer::stop() {
  * @param v Value to round
  * @return Rounded value
  */
-inline int round16(int v) { 
-  return (v + 15) & ~15; 
+inline int round16(int v) {
+  return (v + 15) & ~15;
 }
 
 int ScreenCapturer::openVideo() {
   int ret = -1;
-  
+
   // Find the GDI screen capture input format
   const AVInputFormat *ifmt = av_find_input_format("gdigrab");
   if (!ifmt) {
     av_log(nullptr, AV_LOG_ERROR, "Could not find gdigrab input format");
     return -1;
   }
-  
+
   AVDictionary *options = nullptr;
   const AVCodec *decoder = nullptr;
 
@@ -133,8 +135,9 @@ int ScreenCapturer::openVideo() {
   }
 
   // Set capture framerate and probesize
-  av_dict_set(&options, "framerate", std::to_string(m_fps).c_str(), 0);
-  av_dict_set(&options, "probesize", (std::to_string(m_fps * 2) + "M").c_str(), 0);
+  //av_dict_set(&options, "framerate", std::to_string(m_fps).c_str(), 0);
+  av_dict_set(&options, "probesize", "80M", 0);
+  av_dict_set(&options, "video_size", "2880x1800", 0);
 
   // Open the input device
   ret = avformat_open_input(&m_vFmtCtx, "desktop", ifmt, &options);
@@ -166,14 +169,14 @@ int ScreenCapturer::openVideo() {
         av_log(nullptr, AV_LOG_ERROR, "Cannot find suitable decoder for codec id: %d", stream->codecpar->codec_id);
         return -1;
       }
-      
+
       // Allocate and initialize decoder context
       m_vDecodeCtx = avcodec_alloc_context3(decoder);
       if (!m_vDecodeCtx) {
         av_log(nullptr, AV_LOG_ERROR, "Failed to allocate decoder context");
         return -1;
       }
-      
+
       // Copy parameters from the video stream to decoder context
       ret = avcodec_parameters_to_context(m_vDecodeCtx, stream->codecpar);
       if (ret < 0) {
@@ -182,13 +185,13 @@ int ScreenCapturer::openVideo() {
         av_log(nullptr, AV_LOG_ERROR, "Video avcodec_parameters_to_context failed: %s", error);
         return -1;
       }
-      
+
       m_vIndex = i;
       foundVideoStream = true;
       break;
     }
   }
-  
+
   if (!foundVideoStream) {
     av_log(nullptr, AV_LOG_ERROR, "No video stream found");
     return -1;
@@ -221,7 +224,7 @@ int ScreenCapturer::openVideo() {
   m_video_width = m_width;
   m_video_height = m_height;
   double ratio = static_cast<double>(m_height) / m_width;
-  
+
   // Scale down high resolution captures
   if (m_width >= 4096 && m_height >= 2160) {
     m_video_width = 4096;
@@ -254,20 +257,39 @@ int ScreenCapturer::openVideo() {
     av_log(nullptr, AV_LOG_ERROR, "Failed to initialize scaling context");
     return -1;
   }
-  
+
   return 0;
+}
+
+#if (LIBAVFORMAT_VERSION_MAJOR < 61)
+int custom_io_write(void *opaque, uint8_t *buf, int buf_size)
+#else
+int custom_io_write(void *opaque, const uint8_t *buf, int buf_size)
+#endif
+{
+    if (!opaque)
+        return -1;
+    av::CustomIO *io = static_cast<av::CustomIO*>(opaque);
+    return io->write(buf, buf_size);
 }
 
 int ScreenCapturer::openOutput() {
   int ret = -1;
   AVStream *vStream = nullptr;
-  std::string outFilePath = m_filePath;
 
-  ret = avformat_alloc_output_context2(&m_oFmtCtx, nullptr, nullptr, outFilePath.c_str());
-  if (ret < 0) {
-    av_log(nullptr, AV_LOG_ERROR, "avformat_alloc_output_context2 failed");
+  m_oFmtCtx = avformat_alloc_context();
+  if (!m_oFmtCtx) {
+    av_log(nullptr, AV_LOG_ERROR, "avformat_alloc_context failed");
     return -1;
   }
+
+  const AVOutputFormat *oformat = av_guess_format("mp4", NULL, NULL);
+  if (oformat == nullptr) {
+    av_log(nullptr, AV_LOG_ERROR, "av_guess_format failed");
+    return -1;
+  }
+
+  m_oFmtCtx->oformat = oformat;
 
   const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
   if (!codec) {
@@ -308,7 +330,30 @@ int ScreenCapturer::openOutput() {
       return -1;
     }
 
+    if (!m_password.empty()) {
+      AVIOContext *ctx = nullptr;
+      size_t internalBufferSize = 32*1024;
+      // Note: buffer must be allocated only with av_malloc() and friends
+      uint8_t *internalBuffer = (uint8_t*)av_mallocz(internalBufferSize);
+      if (!internalBuffer) {
+          av_log(nullptr, AV_LOG_ERROR, "av_mallocz failed");
+          return -1;
+      }
+
+      m_owriter.reset(new EncryptWriter(m_filePath, m_password));
+      ctx = avio_alloc_context(internalBuffer, internalBufferSize, true, (void*)(m_owriter.get()), NULL, custom_io_write, NULL);
+      if (ctx) {
+          ctx->seekable = 0;
+          m_oFmtCtx->flags |= AVFMT_FLAG_CUSTOM_IO;
+      } else {
+          return -1;
+      }
+      m_oFmtCtx->pb = ctx;
+    }
+
     // Open the video encoder
+    av_dict_set(&m_dict, "profile", "main", 0);
+    av_dict_set(&m_dict, "rc_mode", "quality", 0);
     ret = avcodec_open2(m_vEncodeCtx, encoder, &m_dict);
     if (ret < 0) {
       av_log(nullptr, AV_LOG_ERROR, "Can not open encoder id: %d error code: %d", (int)encoder->id, ret);
@@ -323,8 +368,10 @@ int ScreenCapturer::openOutput() {
   }
 
   // Open the output file
-  if ((m_oFmtCtx->oformat->flags & AVFMT_NOFILE) == 0) {
-    if (avio_open(&m_oFmtCtx->pb, outFilePath.c_str(), AVIO_FLAG_WRITE) < 0) {
+  if ((m_oFmtCtx->oformat->flags & AVFMT_NOFILE) == 0 &&
+      (m_oFmtCtx->flags & AVFMT_FLAG_CUSTOM_IO) == 0
+    ) {
+    if (avio_open(&m_oFmtCtx->pb, m_filePath.c_str(), AVIO_FLAG_WRITE) < 0) {
       av_log(nullptr, AV_LOG_ERROR, "avio_open failed");
       return -1;
     }
@@ -588,11 +635,11 @@ void ScreenCapturer::setEncoderParams() {
   m_vEncodeCtx->width = m_video_width;
   m_vEncodeCtx->height = m_video_height;
   m_vEncodeCtx->codec_type = AVMEDIA_TYPE_VIDEO;
-  
+
   // Set time base (1/fps)
   m_vEncodeCtx->time_base.num = 1;
   m_vEncodeCtx->time_base.den = m_fps;
-  
+
   // Set GOP (Group of Pictures) size if specified
   if (m_gop > 0) {
     m_vEncodeCtx->gop_size = m_gop;
@@ -600,23 +647,24 @@ void ScreenCapturer::setEncoderParams() {
     // Default GOP size to 2 seconds of frames
     m_vEncodeCtx->gop_size = m_fps * 2;
   }
-  
+
   // Configure quality parameters
   m_vEncodeCtx->max_b_frames = 2;  // Use up to 2 B-frames for better compression
   m_vEncodeCtx->qmin = m_quality - (m_quality > 1 ? 1 : 0);
   m_vEncodeCtx->qmax = m_quality + 1;
-  
+
   // Set pixel format to YUV420P (widely compatible)
   m_vEncodeCtx->pix_fmt = AV_PIX_FMT_YUV420P;
-  
+
   // Set global header flag if needed by the output format
   if (m_oFmtCtx->oformat->flags & AVFMT_GLOBALHEADER) {
     m_vEncodeCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
   }
-  
+
   // Set encoder preset and rate control mode
   av_dict_set(&m_dict, "preset", "slow", 0);  // Slow preset for better quality
   av_dict_set(&m_dict, "rc_mode", "quality", 0);  // Quality-based rate control
+  av_dict_set(&m_dict, "allow_skip_frames", "1", 0);    // Enable frame skipping
 }
 
 void ScreenCapturer::flushDecoder() {
@@ -725,7 +773,6 @@ void ScreenCapturer::release() {
     avcodec_free_context(&m_vEncodeCtx);
   }
   if (m_vFifo != nullptr) {
-
 #if LIBAVCODEC_VERSION_MAJOR > 58
     av_fifo_freep2(&m_vFifo);
 #else
@@ -735,7 +782,12 @@ void ScreenCapturer::release() {
   if (m_vFmtCtx != nullptr) {
     avformat_close_input(&m_vFmtCtx);
   }
+
   if (m_oFmtCtx != nullptr) {
+    if (m_oFmtCtx->flags & AVFMT_FLAG_CUSTOM_IO) {
+      av_freep(&m_oFmtCtx->pb->buffer);
+      avio_context_free(&m_oFmtCtx->pb);
+    }
     avformat_close_input(&m_oFmtCtx);
   }
   if (m_dict) {
@@ -745,4 +797,6 @@ void ScreenCapturer::release() {
     sws_freeContext(m_swsCtx);
     m_swsCtx = nullptr;
   }
+
+  m_owriter.reset();
 }

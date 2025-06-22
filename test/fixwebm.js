@@ -1,6 +1,5 @@
 const addon = require(".");
 
-debugger;
 async function main() {
   await addon.fixup_webm(
     "jk.webm",

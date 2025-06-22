@@ -33,14 +33,14 @@ EXPORTED int ff_probe(int argc, const char **argv, char **out, int *out_size);
 EXPORTED int ff_log_set(int level, log_callback_t callback);
 EXPORTED void ff_log_reset(int level);
 EXPORTED void ff_free(void *p);
-EXPORTED int ff_get_av_duration(const char *inputFilePath, enum AVMediaType mediaType,
+EXPORTED int ff_get_av_duration(const char *inputFilePath, const char* password, enum AVMediaType mediaType,
                        int *duration);
 EXPORTED int ff_get_av_duration_buffer(const uint8_t *buf, int buf_size,
                               enum AVMediaType mediaType, int *duration);
 EXPORTED int ff_get_av_duration_callback(read_packet_t read_file, void *ctx,
                                 enum AVMediaType mediaType, int *duration);
 
-EXPORTED int ff_get_audio_volume(const char *filename, int64_t start, int64_t duration,
+EXPORTED int ff_get_audio_volume(const char *filename, const char* password, int64_t start, int64_t duration,
                         float *max_volume, float *mean_volume);
 
 EXPORTED int ff_get_audio_volume_buffer(const uint8_t *buf, int buf_size, int64_t start,

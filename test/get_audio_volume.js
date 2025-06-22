@@ -1,5 +1,9 @@
-const addon = require('.');
+const addon = require(".");
 
 const args = process.argv.splice(2);
-let r = addon.get_audio_volume_info(args[0], {start: 15, duration: 0});
+let r = addon.get_audio_volume_info(args[0], {
+  start: 15,
+  duration: 0,
+  password: "1234",
+});
 console.log(r);
