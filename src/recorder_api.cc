@@ -3,6 +3,9 @@
 #include "timestamp.h"
 #include "enc_writer.h"
 
+#include <algorithm>
+#include <cstring>
+
 // Maximum number of frames to buffer before dropping frames
 constexpr int MAX_BUF_FRAMES = 30;
 // Number of frames to drop when buffer overflows
@@ -42,6 +45,8 @@ Napi::Object Recorder::Init(Napi::Env env, Napi::Object exports) {
       {
           InstanceMethod<&Recorder::AddImage>(
               "AddImage", static_cast<napi_property_attributes>(napi_writable | napi_configurable)),
+          InstanceMethod<&Recorder::AddWebm>(
+              "AddWebm", static_cast<napi_property_attributes>(napi_writable | napi_configurable)),
           InstanceMethod<&Recorder::Close>(
               "Close", static_cast<napi_property_attributes>(napi_writable | napi_configurable)),
           InstanceMethod<&Recorder::FramesDropped>(
@@ -266,7 +271,13 @@ Recorder::Recorder(const Napi::CallbackInfo &info) : Napi::ObjectWrap<Recorder>(
 /**
  * Destructor - ensures thread is stopped and resources are cleaned up
  */
-Recorder::~Recorder() { stop_thread(); }
+Recorder::~Recorder() {
+  stop_thread();
+
+  // Clear rescaler cache
+  std::lock_guard<std::mutex> lock(mtx_rescaler_cache);
+  rescaler_cache.clear();
+}
 
 /**
  * Close the recorder and stop the processing thread
@@ -327,6 +338,201 @@ Napi::Value Recorder::AddImage(const Napi::CallbackInfo &info) {
 }
 
 /**
+ * Add WebM blob frames to the video
+ * @param info JavaScript call info containing WebM blob buffer
+ * @return Boolean indicating success
+ */
+Napi::Value Recorder::AddWebm(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (hasError || done) {
+    return Napi::Boolean::New(env, false);
+  }
+  if (info.Length() < 1) {
+    Napi::TypeError::New(env, "Expected 1 argument: WebM blob buffer").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  if (!info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "First argument must be a buffer").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  auto blob_buffer = info[0].As<Napi::Buffer<uint8_t>>();
+  if (blob_buffer.ByteLength() == 0) {
+    Napi::RangeError::New(env, "WebM blob buffer is empty").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  try {
+    std::error_code ec;
+
+    // Create a temporary memory buffer for the WebM data
+    av::FormatContext input_ctx;
+
+    // Create AVIOContext for memory buffer (similar to buffer_io.c)
+    AVIOContext *avio_ctx = nullptr;
+    uint8_t *avio_ctx_buffer = nullptr;
+    size_t avio_ctx_buffer_size = 4096;
+
+    struct buffer_data {
+      const uint8_t *ptr;
+      size_t size;
+    } bd = {blob_buffer.Data(), blob_buffer.ByteLength()};
+
+    // Allocate buffer for AVIO
+    avio_ctx_buffer = static_cast<uint8_t *>(av_malloc(avio_ctx_buffer_size));
+    if (!avio_ctx_buffer) {
+      Napi::Error::New(env, "Failed to allocate memory for AVIO buffer")
+          .ThrowAsJavaScriptException();
+      return Napi::Boolean::New(env, false);
+    }
+
+    // Create AVIO context
+    avio_ctx = avio_alloc_context(
+        avio_ctx_buffer, avio_ctx_buffer_size, 0, &bd,
+        [](void *opaque, uint8_t *buf, int buf_size) -> int {
+          auto *bd = static_cast<buffer_data *>(opaque);
+          buf_size = FFMIN(buf_size, static_cast<int>(bd->size));
+          if (!buf_size)
+            return AVERROR_EOF;
+          memcpy(buf, bd->ptr, buf_size);
+          bd->ptr += buf_size;
+          bd->size -= buf_size;
+          return buf_size;
+        },
+        nullptr, nullptr);
+
+    if (!avio_ctx) {
+      av_freep(&avio_ctx_buffer);
+      Napi::Error::New(env, "Failed to create AVIO context").ThrowAsJavaScriptException();
+      return Napi::Boolean::New(env, false);
+    }
+
+    // Set up format context with memory buffer
+    input_ctx.raw()->pb = avio_ctx;
+    input_ctx.raw()->flags |= AVFMT_FLAG_CUSTOM_IO;
+
+    // Open input context
+    input_ctx.openInput("", ec);
+    if (ec) {
+      av_freep(&avio_ctx->buffer);
+      avio_context_free(&avio_ctx);
+      Napi::Error::New(env, std::string("Failed to open WebM input: ") + ec.message())
+          .ThrowAsJavaScriptException();
+      return Napi::Boolean::New(env, false);
+    }
+
+    // Find stream information
+    input_ctx.findStreamInfo(ec);
+    if (ec) {
+      av_freep(&avio_ctx->buffer);
+      avio_context_free(&avio_ctx);
+      Napi::Error::New(env, std::string("Failed to find stream info: ") + ec.message())
+          .ThrowAsJavaScriptException();
+      return Napi::Boolean::New(env, false);
+    }
+
+    // Find video stream
+    int video_stream_index = -1;
+    av::Stream video_stream;
+    for (size_t i = 0; i < input_ctx.streamsCount(); ++i) {
+      auto stream = input_ctx.stream(i);
+      if (stream.mediaType() == AVMEDIA_TYPE_VIDEO) {
+        video_stream_index = i;
+        video_stream = stream;
+        break;
+      }
+    }
+
+    if (video_stream_index == -1) {
+      av_freep(&avio_ctx->buffer);
+      avio_context_free(&avio_ctx);
+      Napi::Error::New(env, "No video stream found in WebM blob").ThrowAsJavaScriptException();
+      return Napi::Boolean::New(env, false);
+    }
+
+    // Check if it's VP8 or VP9
+    auto codec_id = video_stream.codecParameters().codecId();
+    if (codec_id != AV_CODEC_ID_VP8 && codec_id != AV_CODEC_ID_VP9) {
+      av_freep(&avio_ctx->buffer);
+      avio_context_free(&avio_ctx);
+      Napi::Error::New(env, "WebM blob must contain VP8 or VP9 video").ThrowAsJavaScriptException();
+      return Napi::Boolean::New(env, false);
+    }
+
+    // Create decoder context
+    av::VideoDecoderContext decoder(video_stream);
+    decoder.setRefCountedFrames(true);
+
+    // Open decoder
+    decoder.open(av::Codec(), ec);
+    if (ec) {
+      av_freep(&avio_ctx->buffer);
+      avio_context_free(&avio_ctx);
+      Napi::Error::New(env, std::string("Failed to open decoder: ") + ec.message())
+          .ThrowAsJavaScriptException();
+      return Napi::Boolean::New(env, false);
+    }
+
+    // Process all packets in the WebM blob
+    int frames_added = 0;
+    while (true) {
+      av::Packet packet = input_ctx.readPacket(ec);
+      if (ec) {
+        if (ec.value() == AVERROR_EOF) {
+          // Normal end of file
+          break;
+        }
+        // Log warning but continue processing
+        av_log(nullptr, AV_LOG_WARNING, "Error reading packet: %s\n", ec.message().c_str());
+        continue;
+      }
+
+      if (packet.isNull()) {
+        break;
+      }
+
+      // Only process video stream packets
+      if (packet.streamIndex() != video_stream_index) {
+        continue;
+      }
+
+      // Decode packet to frame
+      av::VideoFrame frame = decoder.decode(packet, ec);
+      if (ec) {
+        av_log(nullptr, AV_LOG_WARNING, "Decoding error: %s\n", ec.message().c_str());
+        continue;
+      }
+
+      if (frame) {
+        push(frame.clone());
+        frames_added++;
+      }
+    }
+
+    // Flush decoder to get any remaining frames
+    av::VideoFrame frame = decoder.decode(av::Packet(), ec);
+    while (frame && !ec) {
+      push(frame.clone());
+      frames_added++;
+      frame = decoder.decode(av::Packet(), ec);
+    }
+
+    // Clean up
+    av_freep(&avio_ctx->buffer);
+    avio_context_free(&avio_ctx);
+    input_ctx.close();
+
+    return Napi::Boolean::New(env, frames_added > 0 && !hasError);
+
+  } catch (const std::exception &e) {
+    Napi::Error::New(env, std::string("Failed to process WebM blob: ") + e.what())
+        .ThrowAsJavaScriptException();
+    hasError = true;
+    return Napi::Boolean::New(env, false);
+  }
+}
+
+/**
  * Get the number of frames that were dropped due to buffer overflow
  * @param info JavaScript call info
  * @return Number of dropped frames
@@ -334,6 +540,32 @@ Napi::Value Recorder::AddImage(const Napi::CallbackInfo &info) {
 Napi::Value Recorder::FramesDropped(const Napi::CallbackInfo &info) {
   auto env = info.Env();
   return Napi::Number::New(env, frames_dropped);
+}
+
+av::VideoRescaler *Recorder::get_rescaler(av::VideoFrame &frame,
+                                          av::VideoEncoderContext &encoder_ctx) {
+  // 使用缓存的rescaler以提高性能
+  auto cache_key = std::make_tuple(frame.width(), frame.height(), frame.pixelFormat());
+
+  av::VideoRescaler *frame_rescaler = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(mtx_rescaler_cache);
+    auto it = rescaler_cache.find(cache_key);
+    if (it == rescaler_cache.end()) {
+      // 创建新的rescaler并缓存
+      av_log(nullptr, AV_LOG_DEBUG, "Creating new rescaler for format: %dx%d %s -> %dx%d %s\n",
+             frame.width(), frame.height(), av_get_pix_fmt_name(frame.pixelFormat()),
+             encoder.width(), encoder.height(), av_get_pix_fmt_name(encoder.pixelFormat()));
+
+      auto result = rescaler_cache.emplace(
+          cache_key, av::VideoRescaler(encoder.width(), encoder.height(), encoder.pixelFormat(),
+                                       frame.width(), frame.height(), frame.pixelFormat()));
+      frame_rescaler = &result.first->second;
+    } else {
+      frame_rescaler = &it->second;
+    }
+  }
+  return frame_rescaler;
 }
 
 /**
@@ -351,7 +583,8 @@ void Recorder::process_frames() {
       if (!got) {
         flushEncoder = true;
       } else {
-        frame = rescaler.rescale(frame, ec);
+        av::VideoRescaler *frame_rescaler = get_rescaler(frame, encoder);
+        frame = frame_rescaler->rescale(frame, ec);
         if (ec) {
           av_log(nullptr, AV_LOG_ERROR, "Can't rescale frame: %s\n", ec.message().c_str());
           hasError = true;
@@ -430,7 +663,7 @@ void Recorder::push(av::VideoFrame frame) {
 bool Recorder::pop(av::VideoFrame &frame) {
   std::unique_lock<std::mutex> lock(mtx_frames);
   cv_frames.wait(lock, [this] { return !frames.empty() || done; });
-  if (frames.empty() && done) {
+  if (frames.empty()) {
     return false;
   }
   frame = std::move(frames.front());

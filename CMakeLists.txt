@@ -142,7 +142,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_JS_INC})
 
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 if (ENABLE_FFMPEG)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} OpenSSL::Crypto OpenSSL::SSL)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} OpenSSL::Crypto)
 else()
   target_include_directories(${PROJECT_NAME} PRIVATE libwebm src)
   target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} webm)
