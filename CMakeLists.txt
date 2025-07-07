@@ -102,6 +102,7 @@ if(ENABLE_FFMPEG)
     src/combine.cc
     src/buffer_io.c
     src/get_volume.cc
+    src/metatags.cc
     src/encrypt/joye_writer.c
     src/encrypt/joye_reader.c
   )
@@ -171,6 +172,7 @@ if(BUILD_WEBM_DLL)
   set(WEBMDLL "webmdll")
   if (ENABLE_FFMPEG)
     add_library(${WEBMDLL} SHARED "src/webm_muxer_ffmpeg.cc" "src/fixwebm.cc")
+    target_compile_definitions(${WEBMDLL} PRIVATE NO_ENCRYPTION=1)
     target_link_libraries(${WEBMDLL} PRIVATE avcpp)
   else()
     add_library(${WEBMDLL} SHARED

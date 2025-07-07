@@ -9,9 +9,9 @@
 #include <windows.h>
 #endif
 
-#include <avcpp/format.h>
-#include <avcpp/ffmpeg.h>
-#include <avcpp/formatcontext.h>
+#include "avcpp/format.h"
+#include "avcpp/ffmpeg.h"
+#include "avcpp/formatcontext.h"
 
 #include "encrypt/joye_reader.h"
 

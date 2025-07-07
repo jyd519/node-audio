@@ -20,11 +20,13 @@ extern "C" {
 #include "screen_capturer.h"
 #include "combine.h"
 #include "fixwebm.h"
+#include "metatags.h"
 
+#include <map>
 
 // Input: buffer/filename, "video"/"audio" (default)
 // Output: {status, duration}
-Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
+Napi::Value get_audio_duration(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
   if (info.Length() < 1) {
@@ -35,7 +37,7 @@ Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
   std::string in;
   std::string password;
   bool is_buffer = false;
-  void* data = nullptr;
+  void *data = nullptr;
   size_t length = 0;
   enum AVMediaType media = AVMEDIA_TYPE_AUDIO;
   int duration = 0;
@@ -61,7 +63,7 @@ Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
       if (type == "video") {
         media = AVMEDIA_TYPE_VIDEO;
       }
-    } else if(info[1].IsObject()) {
+    } else if (info[1].IsObject()) {
       Napi::Object opts = info[1].As<Napi::Object>();
       if (opts.Has("media")) {
         std::string type = opts.Get("media").As<Napi::String>().Utf8Value();
@@ -73,14 +75,15 @@ Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
         password = opts.Get("password").As<Napi::String>().Utf8Value();
       }
     } else {
-      Napi::Error::New(env, "Second argument must be a string or object").ThrowAsJavaScriptException();
+      Napi::Error::New(env, "Second argument must be a string or object")
+          .ThrowAsJavaScriptException();
       return env.Null();
     }
   }
 
   // Get duration based on input type
   if (is_buffer) {
-    r = ff_get_av_duration_buffer(static_cast<const uint8_t*>(data), length, media, &duration);
+    r = ff_get_av_duration_buffer(static_cast<const uint8_t *>(data), length, media, &duration);
   } else {
     r = ff_get_av_duration(in.c_str(), password.c_str(), media, &duration);
   }
@@ -93,7 +96,7 @@ Napi::Value get_audio_duration(const Napi::CallbackInfo& info) {
   return result;
 }
 
-Napi::Value get_audio_volume_info(const Napi::CallbackInfo& info) {
+Napi::Value get_audio_volume_info(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1) {
     Napi::TypeError::New(env, "Expected string: input file path").ThrowAsJavaScriptException();
@@ -102,7 +105,7 @@ Napi::Value get_audio_volume_info(const Napi::CallbackInfo& info) {
 
   std::string in, password;
   bool isBuffer = false;
-  void* data = nullptr;
+  void *data = nullptr;
   size_t length = 0;
   int64_t start = -1, duration = -1;
   float maxVolume, meanVolume;
@@ -116,7 +119,8 @@ Napi::Value get_audio_volume_info(const Napi::CallbackInfo& info) {
   } else if (info[0].IsString()) {
     in = info[0].As<Napi::String>().Utf8Value();
   } else {
-    Napi::TypeError::New(env, "First argument must be a buffer or string").ThrowAsJavaScriptException();
+    Napi::TypeError::New(env, "First argument must be a buffer or string")
+        .ThrowAsJavaScriptException();
     return env.Null();
   }
 
@@ -134,7 +138,8 @@ Napi::Value get_audio_volume_info(const Napi::CallbackInfo& info) {
   }
 
   if (isBuffer) {
-    r = ff_get_audio_volume_buffer(static_cast<const uint8_t*>(data), length, start, duration, &maxVolume, &meanVolume);
+    r = ff_get_audio_volume_buffer(static_cast<const uint8_t *>(data), length, start, duration,
+                                   &maxVolume, &meanVolume);
   } else {
     r = ff_get_audio_volume(in.c_str(), password.c_str(), start, duration, &maxVolume, &meanVolume);
   }
@@ -147,7 +152,7 @@ Napi::Value get_audio_volume_info(const Napi::CallbackInfo& info) {
   return result;
 }
 
-Napi::Value probe(const Napi::CallbackInfo& info) {
+Napi::Value probe(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1) {
     Napi::TypeError::New(env, "Invalid arguments").ThrowAsJavaScriptException();
@@ -155,7 +160,7 @@ Napi::Value probe(const Napi::CallbackInfo& info) {
   }
 
   std::vector<std::string> argsOwner;
-  std::vector<const char*> args;
+  std::vector<const char *> args;
 
   argsOwner.push_back("ffprobe");
   for (size_t i = 0; i < info.Length(); i++) {
@@ -166,13 +171,13 @@ Napi::Value probe(const Napi::CallbackInfo& info) {
     argsOwner.push_back(info[i].As<Napi::String>().Utf8Value());
   }
 
-  for (const auto& arg : argsOwner) {
+  for (const auto &arg : argsOwner) {
     args.push_back(arg.c_str());
   }
   args.push_back(nullptr);
 
   std::string json;
-  char* out = nullptr;
+  char *out = nullptr;
   int outsize;
   int ret = ff_probe(args.size() - 1, args.data(), &out, &outsize);
   if (ret == 0) {
@@ -344,4 +349,27 @@ Napi::Value fixwebmfileAsync(const Napi::CallbackInfo &info) {
 
   return deferred.Promise();
 }
+
+Napi::Value getMetaTags(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+
+  if (info.Length() < 1) {
+    Napi::Error::New(env, "Expected string: input file path").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  std::string password;
+  auto input = info[0].As<Napi::String>().Utf8Value();
+
+  if (info.Length() > 1 && info[1].IsString()) {
+    password = info[1].As<Napi::String>().Utf8Value();
+  }
+
+  auto metadata = readMediaFileFormatTags(input, password);
+  auto r = Napi::Object::New(env);
+  for (auto it = metadata.begin(); it != metadata.end(); it++) {
+    r.Set(it->first, Napi::String::New(env, it->second));
+  }
+  return r;
+}
+
 #endif

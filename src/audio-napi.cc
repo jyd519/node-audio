@@ -612,7 +612,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("combine", Napi::Function::New(env, combine));
   exports.Set("fixup_webm", Napi::Function::New(env, fixwebmfile));
   exports.Set("fixup_webm_async", Napi::Function::New(env, fixwebmfileAsync));
-
+  exports.Set("get_meta_tags", Napi::Function::New(env, getMetaTags));
   av_log_set_level(AV_LOG_ERROR);
 #ifdef _WIN32
   // Use safer _dupenv_s on Windows platforms

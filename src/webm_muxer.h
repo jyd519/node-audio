@@ -8,5 +8,5 @@
 #endif 
 
 extern "C" int DLL_EXPORTED FixWebmFile(const char* input, const char* output);
-
+extern "C" int DLL_EXPORTED FixWebmFile2(const char *input, const char *output, const char* metadata);
 #endif //WEBM_MUXER_H
