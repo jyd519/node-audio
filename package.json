@@ -1,13 +1,15 @@
 {
-  "name": "win-audio",
+  "name": "node-audio",
   "version": "2.0.1",
-  "description": "Get, Set and Watch Speaker/Microphone Volume on Windows",
-  "main": "dist/index.js",
+  "description": "audio wrapper for node.js",
+  "main": "index.js",
   "scripts": {
-    "test": "npm i && node sample",
-    "babel": "npx babel src --out-dir dist",
-    "build": "node-gyp build",
+    "test": "jest",
+    "build": "cmake-js compile",
+    "x64": "cmake-js rebuild -a x64 -O x64build",
+    "ia32": "cmake-js rebuild -a ia32 -O ia32build",
     "debug": "node-gyp --debug configure build",
+    "config": "node-gyp configure",
     "release": "node-gyp configure rebuild",
     "joytest": "node-gyp rebuild",
     "joytest32": "node-gyp rebuild --arch=ia32"
@@ -29,9 +31,15 @@
     "speaker",
     "windows"
   ],
+  "cmake-js": {
+    "runtime": "node",
+    "runtimeVersion": "16.5.0"
+  },
+  "dependencies": {
+    "cmake-js": "^7.3.0",
+    "node-addon-api": "^8.1.0"
+  },
   "devDependencies": {
-    "@babel/cli": "^7.2.3",
-    "@babel/core": "^7.3.4",
-    "@babel/preset-env": "^7.3.4"
+    "yargs": "^17.7.2"
   }
 }
