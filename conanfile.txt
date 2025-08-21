@@ -6,6 +6,7 @@ fmt/11.0.2
 [options]
 #ffmpeg/*:shared=True
 
+
 [generators]
 CMakeToolchain
 CMakeDeps

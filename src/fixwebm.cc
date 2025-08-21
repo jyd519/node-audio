@@ -112,6 +112,12 @@ bool remuxWebmFile(const std::string &inputPath, const std::string &outputPath,
 
     // Write output header
     av::Dictionary headerOptions;
+    if (auto pos = outputPath.find_last_of("."); pos != std::string::npos) {
+      if (outputPath.substr(pos) == ".mp4") {
+          headerOptions.set("movflags", "+faststart+use_metadata_tags");
+      }
+    }
+
     // Note: We don't need to set AVFMT_GLOBALHEADER explicitly as it's handled internally
 
     std::error_code headerEc;

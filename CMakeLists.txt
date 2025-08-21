@@ -151,7 +151,8 @@ endif(ENABLE_FFMPEG)
 
 if(WIN32)
   target_compile_options(${PROJECT_NAME} PRIVATE /experimental:c11atomics
-                                                 /std:c11)
+                                                 /std:c11 /Gy)
+ target_link_options(${PROJECT_NAME} PRIVATE /OPT:REF /OPT:ICF)
   target_link_libraries(${PROJECT_NAME} PRIVATE delayimp.lib)
 endif()
 if(ENABLE_FFMPEG)
