@@ -46,3 +46,9 @@ jspm_packages
 /.cache/clangd/index
 /out/build32
 /out/build64
+*.dll
+*.node
+*.mp4
+*.webm
+*.exe
+/sample-record

@@ -21,7 +21,7 @@ bool remuxWebmFile(const std::string &inputPath, const std::string &outputPath,
                    const std::map<std::string, std::string> &metadata) {
   try {
     // Initialize FFmpeg
-    //av::init();
+    // av::init();
 
     // Set up input format context with error recovery flags
     av::FormatContext inputContext;
@@ -57,7 +57,7 @@ bool remuxWebmFile(const std::string &inputPath, const std::string &outputPath,
     if (auto p = metadata.find("password"); p != metadata.end()) {
       password = p->second;
     }
-#endif    
+#endif
     try {
 #ifndef NO_ENCRYPTION
       if (!password.empty()) {
@@ -65,10 +65,10 @@ bool remuxWebmFile(const std::string &inputPath, const std::string &outputPath,
         outputContext.setFormat(av::OutputFormat("", outputPath));
         outputContext.openOutput(owriter.get());
       } else {
-        outputContext.openOutput(outputPath);      
+        outputContext.openOutput(outputPath);
       }
 #else
-      outputContext.openOutput(outputPath);  
+      outputContext.openOutput(outputPath);
 #endif
     } catch (const std::exception &e) {
       av_log(nullptr, AV_LOG_ERROR, "Error creating output file: %s\n", e.what());
@@ -114,7 +114,7 @@ bool remuxWebmFile(const std::string &inputPath, const std::string &outputPath,
     av::Dictionary headerOptions;
     if (auto pos = outputPath.find_last_of("."); pos != std::string::npos) {
       if (outputPath.substr(pos) == ".mp4") {
-          headerOptions.set("movflags", "+faststart+use_metadata_tags");
+        headerOptions.set("movflags", "+faststart+use_metadata_tags");
       }
     }
 

@@ -11,7 +11,7 @@ const addon_dir =(function() {
     return '.\\out\\build64d\\Debug';
   }
   if (process.platform == "win32" || process.platform == "darwin") {
-    p = process.arch == "x64" ? `bin/build64/${rel}` : `bin/build32/${rel}`;
+    p = process.arch == "x64" ? `bin/build64` : `bin/build32`;
   } else {
     //linux
     if (process.arch ==="arm64") {

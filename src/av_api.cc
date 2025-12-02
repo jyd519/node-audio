@@ -232,6 +232,15 @@ Napi::Value record_screen(const Napi::CallbackInfo &info) {
       opts.Delete("width");
       opts.Delete("height");
     }
+    if (opts.Has("meta") && opts.Get("meta").IsObject()) {
+      auto meta = opts.Get("meta").As<Napi::Object>();
+      auto names = meta.GetPropertyNames().As<Napi::Array>();
+      for (int i = 0; i < names.Length(); i++) {
+        auto name = names.Get(i).ToString().Utf8Value();
+        capturer->set_metadata(name, meta.Get(name).ToString().Utf8Value());
+      }
+      opts.Delete("meta");
+    }
 
     auto names = opts.GetPropertyNames().As<Napi::Array>();
     for (int i = 0; i < names.Length(); i++) {

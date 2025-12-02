@@ -47,7 +47,7 @@ int FixWebmFile2(const char* input, const char* output,
       }
 
       tags[key] = value;
-    }  
+    }
   }
   auto ok = remuxWebmFile(input, output, tags);
   return ok ? 0 : 1;

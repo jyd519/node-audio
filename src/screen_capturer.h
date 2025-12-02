@@ -57,9 +57,8 @@ public:
 
   void set_password(const std::string& password) { m_password = password; }
   void set_quality(int quality) { m_quality = quality; }
-  void set_title(const std::string &title) { m_title = title; }
-  void set_comment(const std::string &comment) { m_comment = comment; }
   void set_option(const std::string &key, const std::string &value) { m_opts[key] = value; }
+  void set_metadata(const std::string &key, const std::string &value) { m_metadata[key] = value; }
   void set_gop(int size) { m_gop = size; }
 
   void start();
@@ -81,17 +80,16 @@ private:
 
 private:
   std::string m_filePath;
-  std::string m_title;
-  std::string m_comment;
   std::string m_password;
   int m_quality = 10;
   int m_width = 0;
   int m_height = 0;
   int m_video_width = 0;
   int m_video_height = 0;
-  int m_fps = 25;
-  int m_gop = 0;
+  int m_fps = 30;
+  int m_gop = 30;
   std::map<std::string, std::string> m_opts;
+  std::map<std::string, std::string> m_metadata;
 
   std::unique_ptr<std::thread> m_recordThread = nullptr;
   std::unique_ptr<std::thread> m_captureThread = nullptr;

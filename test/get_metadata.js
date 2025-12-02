@@ -1,4 +1,4 @@
-const addon = require(".");
+const addon = require("..");
 
 const args = process.argv.splice(2);
 r = addon.get_meta_tags(args[0], "1234" );
