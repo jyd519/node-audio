@@ -1,0 +1,18 @@
+{
+    local:
+        EVP_*;
+        RSA_*;
+        DSA_*;
+        DH_*;
+        EC_*;
+        X509_*;
+        ASN1_*;
+        BIO_*;
+        SSL_*;
+        CRYPTO_*;
+        OPENSSL_*;
+        BN_*;
+        OCSP_*;
+
+        *;
+};
