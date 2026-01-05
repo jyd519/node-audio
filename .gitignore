@@ -52,3 +52,4 @@ jspm_packages
 *.webm
 *.exe
 /sample-record
+out/
