@@ -4,7 +4,7 @@ project(audio)
 
 set(ENABLE_SAMPLE_PROGRAMS OFF CACHE BOOL "")
 
-message(STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
+message(STATUS ">>>CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
 
 if (CMAKE_SYSTEM_PROCESSOR STREQUAL "loong64")
   message(STATUS ">>>>Disable webm info and ts support for loongarch64")
@@ -12,11 +12,14 @@ if (CMAKE_SYSTEM_PROCESSOR STREQUAL "loong64")
   set(ENABLE_WEBMTS OFF CACHE BOOL "")
 endif()
 
+message(STATUS ">>>CMAKE_JS_LIB=${CMAKE_JS_LIB}  CMAKE_JS_SRC=${CMAKE_JS_SRC} CMAKE_JS_INC=${CMAKE_JS_INC}")
+
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 
 if(APPLE)
   set(CMAKE_INSTALL_RPATH "@executable_path")
@@ -35,13 +38,14 @@ if(WIN32)
   add_compile_definitions(UNICODE _UNICODE)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
-
+if (LINUX)
+  add_compile_definitions(__USE_LARGEFILE64 __USE_FILE_OFFSET64 _FILE_OFFSET_BITS=64 _GNU_SOURCE)
+endif()
 if(ENABLE_FFMPEG)
   find_package(ffmpeg REQUIRED)
 endif(ENABLE_FFMPEG)
 
 find_package(OpenSSL REQUIRED)
-# find_package(fmt CONFIG REQUIRED)
 
 if(ENABLE_FFMPEG)
   include_directories(${FFMPEG_INCLUDE_DIRS})
@@ -115,7 +119,9 @@ endif(MSVC)
 if(ENABLE_FFMPEG)
   add_executable(ffprobe ${FFPROBE_SRC})
   target_include_directories(ffprobe PRIVATE src src/compat src/encrypt)
-
+  if (LINUX)
+    target_link_libraries(ffprobe PRIVATE m)
+  endif()
   # add_executable(ffmpeg ${FFMPEG_SRC}) target_include_directories(ffmpeg
   # PRIVATE src src/compat)
   if(MSVC)
@@ -139,15 +145,26 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE BUILD_DLL
                                                    NAPI_VERSION=8
                                                  )
 
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_JS_INC})
-
-target_include_directories(${PROJECT_NAME} PRIVATE src)
+target_include_directories(${PROJECT_NAME} PRIVATE src ${OPENSSL_CRYPTO_INCLUDE_DIR})
 if (ENABLE_FFMPEG)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} OpenSSL::Crypto)
+  target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto ${CMAKE_JS_LIB})
 else()
   target_include_directories(${PROJECT_NAME} PRIVATE libwebm src)
   target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} webm)
 endif(ENABLE_FFMPEG)
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_JS_INC})
+
+if (LINUX)
+  set_target_properties(${PROJECT_NAME} PROPERTIES
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN YES
+  )
+
+  target_link_options(${PROJECT_NAME} PRIVATE
+      "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/openssl-hide.map"
+  )
+endif(LINUX)
 
 if(WIN32)
   target_compile_options(${PROJECT_NAME} PRIVATE /experimental:c11atomics
@@ -208,36 +225,6 @@ if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json")
       ${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json)
 endif()
 
-if(ENABLE_FFMPEG)
-  message(info ">>>>${ffmpeg_PACKAGE_FOLDER_RELEASE}")
-
-  if(WIN32)
-    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe"
-         "$ENV{FFMPEG_ROOT}/bin/*.dll")
-  else()
-    file(GLOB FFMPEG_BIN_FILES "${ffmpeg_PACKAGE_FOLDER_RELEASE}/lib/*")
-  endif()
-
-  message(info ">>> COPY FFmpeg shared files: ${FFMPEG_BIN_FILES}")
-
-  if(WIN32)
-    add_custom_command(
-      TARGET ${PROJECT_NAME}
-      POST_BUILD
-      COMMAND
-        ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES}
-        $<TARGET_FILE_DIR:${PROJECT_NAME}> DEPENDS
-        $<TARGET_FILE_DIR:audio>/avcodec-60.dll)
-  else()
-    add_custom_command(
-      TARGET ${PROJECT_NAME}
-      POST_BUILD
-      COMMAND
-        ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES}
-        $<TARGET_FILE_DIR:${PROJECT_NAME}> DEPENDS $<TARGET_FILE_DIR:audio>)
-  endif()
-endif()
-
 get_filename_component(BUILD_NAME "${CMAKE_CURRENT_BINARY_DIR}" NAME)
 set(BIN_DIR "${CMAKE_SOURCE_DIR}/bin/${BUILD_NAME}")
 
@@ -247,3 +234,33 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E make_directory ${BIN_DIR}
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:audio> ${BIN_DIR}/
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${WEBMDLL}> ${BIN_DIR}/)
+
+
+get_filename_component(BUILD_NAME "${CMAKE_CURRENT_BINARY_DIR}" NAME)
+set(BIN_DIR "${CMAKE_SOURCE_DIR}/bin/${BUILD_NAME}")
+add_custom_command(
+  TARGET ${PROJECT_NAME}
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${BIN_DIR}
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${BIN_DIR}/)
+
+if(ENABLE_FFMPEG)
+  if(WIN32)
+    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe"
+         "$ENV{FFMPEG_ROOT}/bin/*.dll")
+  elseif(APPLE)
+    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/*")
+  else()
+    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/lib*.so*")
+  endif()
+
+  message(INFO ">>> COPY FFmpeg shared files: ${FFMPEG_BIN_FILES}")
+
+  add_custom_command(
+    TARGET ${PROJECT_NAME}
+    POST_BUILD
+    COMMAND
+      ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND
+      ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} ${BIN_DIR})
+endif()

@@ -8,7 +8,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
-
+#if defined(__linux__)
+#define _fseeki64 fseeko64
+#endif
 #include "avcpp/format.h"
 #include "avcpp/ffmpeg.h"
 #include "avcpp/formatcontext.h"
@@ -36,8 +38,8 @@ inline bool is_enc_file(const char* name) {
 #endif
   if (file) {
     char buf[4] = {0};
-    fread(buf, 1, 4, file);
-    if (memcmp(buf, "JOYE", 4) == 0) {
+    size_t read = fread(buf, 1, 4, file);
+    if (read == 4 && memcmp(buf, "JOYE", 4) == 0) {
       fclose(file);
       return true;
     }

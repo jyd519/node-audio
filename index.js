@@ -15,9 +15,9 @@ const addon_dir =(function() {
   } else {
     //linux
     if (process.arch ==="arm64") {
-      p = "linux-arm64";
+      p = "bin/arm64";
     } else {
-      p = "linux-amd64";
+      p = "bin/amd64";
     }
   }
 

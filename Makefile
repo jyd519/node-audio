@@ -1,10 +1,10 @@
-.PHONY: clean build linux-arm64 linux-amd64 linux-loong64 libwebm x64
+.PHONY: clean build linux-arm64 linux-x64 linux-amd64 linux-loong64 libwebm x64
 
 UNAME := $(shell uname)
 
 ifeq ($(UNAME), Linux)
 	OS = linux
-	buildtarget=linux-x64 linux-arm64 linux-loong64
+	buildtarget=linux-x64 linux-arm64 # linux-loong64
 	deploytarget=linux-deploy
 else
 	OS = mac
@@ -26,15 +26,23 @@ deploy: $(deploytarget)
 
 
 linux-x64:
-	FFMPEG_ROOT=$(FFMPEG_AMD64) cmake-js rebuild -a x64 -O ./out/amd64
+		conan install -of "out/amd64" --build=missing -s build_type=Release .
+		FFMPEG_ROOT="$(FFMPEG_AMD64)" \
+								PKG_CONFIG_PATH="$(FFMPEG_AMD64)/lib/pkgconfig:." \
+								cmake-js -O "out/amd64" -B Release --CDCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake \
+								--CDENABLE_FFMPEG=ON --CDCMAKE_POLICY_DEFAULT_CMP0091=NEW --CDCMAKE_BUILD_TYPE=Release
 
 
 linux-arm64:
-	FFMPEG_ROOT=$(FFMPEG_ARM64) cmake-js rebuild \
+	conan install -of "out/arm64" --build=missing -s build_type=Release -pr:a arm64	.
+	FFMPEG_ROOT=$(FFMPEG_ARM64) \
+							PKG_CONFIG_PATH="$(FFMPEG_AMD64)/lib/pkgconfig:." \
+							cmake-js configure\
 							--CDCMAKE_TOOLCHAIN_FILE=`pwd`/toolchains/linux-arm64-toolchain.cmake \
 							--CDCMAKE_LIBRARY_ARCHITECTURE=aarch64-linux-gnu \
 							--CDCMAKE_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu \
 							-a arm64 -O ./out/arm64
+							cmake-js build -a arm64 -O out/arm64
 
 
 linux-loong64:
@@ -76,18 +84,20 @@ mac-ffmpeg:
 
 
 linux-deploy:
+	mkdir -p linux-amd64
+	mkdir -p linux-arm64
 	cp ./bin/amd64/libwebm.so ./linux-amd64/libwebm.so
 	cp ./bin/amd64/audio.node ./linux-amd64/
 	strip -s linux-amd64/*
 	cp ./bin/arm64/libwebm.so ./linux-arm64/libwebm.so
 	cp ./bin/arm64/audio.node ./linux-arm64/
 	/usr/bin/aarch64-linux-gnu-strip -s linux-arm64/*
-	cp ./bin/loong64/libwebm.so ./linux-loong64/libwebm.so
-	cp ./bin/loong64/*.node ./linux-loong64/
-	loongarch64-linux-gnu-strip -s linux-loong64/*
+	# cp ./bin/loong64/libwebm.so ./linux-loong64/libwebm.so
+	# cp ./bin/loong64/*.node ./linux-loong64/
+	# loongarch64-linux-gnu-strip -s linux-loong64/*
 	scp -r ./linux-amd64  root@172.16.21.222:/var/ata/joytest/DEV/
 	scp -r ./linux-arm64  root@172.16.21.222:/var/ata/joytest/DEV/
-	scp -r ./linux-loong64  root@172.16.21.222:/var/ata/joytest/DEV/
+	# scp -r ./linux-loong64  root@172.16.21.222:/var/ata/joytest/DEV/
 
 clean:
 	rm -rf libwebm/

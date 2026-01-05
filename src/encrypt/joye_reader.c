@@ -10,6 +10,11 @@
 
 #include "htobe64.h"
 
+#if defined(__linux__)
+#define _fseeki64 fseeko64
+#define _ftelli64 ftello64
+#endif
+
 #define SIG_LENGTH 4
 #define IV_LENGTH 16
 #define LENGTH_LENGTH 8

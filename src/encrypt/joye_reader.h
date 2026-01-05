@@ -1,6 +1,7 @@
 #ifndef C_DECFILE_H
 #define C_DECFILE_H
 
+#define _FILE_OFFSET_BITS 64
 #include <stdint.h>
 #include <stddef.h>
 

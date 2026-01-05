@@ -20,6 +20,7 @@
 #include <map>
 #include <tuple>
 #include <chrono>
+#include <atomic>
 
 class EncryptWriter;
 

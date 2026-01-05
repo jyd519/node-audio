@@ -5017,9 +5017,11 @@ int main(int argc, char **argv)
 
 #ifdef BUILD_DLL
     if (wctx->avio) {
+      uint8_t *p;
       avio_flush(wctx->avio);
-      *out_size = avio_close_dyn_buf(wctx->avio, out);
+      *out_size = avio_close_dyn_buf(wctx->avio, &p);
       wctx->avio = 0;
+      av_free(p);
     }
 #endif
 

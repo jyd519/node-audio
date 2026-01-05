@@ -8,7 +8,7 @@
   "targets": [
   {
     "target_name": "audio",
-    "sources": [ "src/audio-napi.cc", "src/napi_help.cc", "src/av_help.cc", "webvtt/vttreader.cc", 
+    "sources": [ "src/audio-napi.cc", "src/napi_help.cc", "src/av_help.cc", "webvtt/vttreader.cc",
                  "webvtt/webvttparser.cc", "src/webm_muxer.cc", "src/sample_muxer_metadata.cc" ],
     "conditions": [
       ['OS=="mac"',
@@ -20,7 +20,7 @@
         'link_settings': {
           'libraries': [
             '-framework', 'CoreAudio',
-            '-lwebm', 
+            '-lwebm',
             '-L<(libwebm_lib_path)/lib',
           ]
         },
@@ -56,12 +56,13 @@
       ['OS=="linux"',
       {
         'include_dirs': ['<(libwebm_include)', '.'],
+        'defines': ['__USE_LARGEFILE64'],
         'link_settings': {
           'ldflags': [
              "-Wl,-rpath,'$$ORIGIN'"
            ],
           'libraries': [
-            '-lwebm', 
+            '-lwebm',
             '-lasound',
             '-lstdc++',
             '-L<(libwebm_lib_path)',

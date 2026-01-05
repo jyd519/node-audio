@@ -3,6 +3,10 @@
 #include <string.h>
 #include "joye_reader.h"
 
+#if defined(__linux__)
+#define _stricmp strcasecmp
+#endif
+
 static const char *input = NULL;
 static const char *output = NULL;
 static const char *password = NULL;
@@ -28,15 +32,15 @@ void parse_args(int argc, char *argv[]) {
       exit(0);
     }
 
-    if (_strcmpi(argv[i], "-in") == 0) {
+    if (_stricmp(argv[i], "-in") == 0) {
       input = argv[++i];
-    } else if (_strcmpi(argv[i], "-out") == 0) {
+    } else if (_stricmp(argv[i], "-out") == 0) {
       output = argv[++i];
-    } else if (_strcmpi(argv[i], "-s") == 0) {
+    } else if (_stricmp(argv[i], "-s") == 0) {
       pos = atoi(argv[++i]);
-    } else if (_strcmpi(argv[i], "-p") == 0) {
+    } else if (_stricmp(argv[i], "-p") == 0) {
       password = argv[++i];
-    } else if (_strcmpi(argv[i], "-r") == 0) {
+    } else if (_stricmp(argv[i], "-r") == 0) {
       recover = 1;
     }
     ++i;
@@ -83,7 +87,7 @@ int main(int argc, char *argv[]) {
       return 1;
     }
   }
-  
+
   if (pos > 0) {
       enc_reader_seek(r, pos, SEEK_SET);
   }

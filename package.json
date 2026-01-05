@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "cmake-js": "^7.3.0",
-    "node-addon-api": "^8.1.0"
+    "node-addon-api": "^8.5.0"
   },
   "devDependencies": {
     "yargs": "^17.7.2"

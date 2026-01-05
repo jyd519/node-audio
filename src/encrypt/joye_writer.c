@@ -1,11 +1,17 @@
 #include "joye_writer.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
+
+#if defined(__linux__)
+#define _fseeki64 fseeko64
+#define _ftelli64 ftello64
+#endif
 
 /* --- Constants replicated from Go implementation --- */
 #define FILE_SIG "JOYE"
@@ -236,12 +242,12 @@ size_t enc_writer_write(enc_writer_ctx *w, const void *data, size_t len) {
     len -= sz;
   }
 
-  w->current_position += (in-data);
+  w->current_position += (in-(const unsigned char *)data);
   if (w->current_position > w->total) {
     w->total = w->current_position;
   }
 
-  return in-data;
+  return in-(const unsigned char *)data;
 }
 
 static int finalize_hmac(enc_writer_ctx *w, unsigned char *out) {

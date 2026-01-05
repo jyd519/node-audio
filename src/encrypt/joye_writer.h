@@ -1,6 +1,8 @@
 #ifndef C_ENC_WRITER_H
 #define C_ENC_WRITER_H
 
+#define _FILE_OFFSET_BITS 64
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -10,7 +12,7 @@ extern "C" {
 #endif
 
 /*
- * enc_wwwwww_ctxw_ctxw_ctxw_ctxw_ctxw_ctxw_ctxw_ctxw_ctxw_ctxr_ctxi_ctxt_ctxe_ctxr_ctx
+ * enc_ctx
  * ---------
  * A drop-in C implementation of the Go encfile.Writer.
  * It produces the exact same binary layout so the resulting

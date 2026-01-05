@@ -1,6 +1,12 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+
 #include "joye_writer.h"
+
+#if defined(__linux__)
+#define _stricmp strcasecmp
+#endif
 
 static const char *input = NULL;
 static const char *output = NULL;
@@ -24,11 +30,11 @@ void parse_args(int argc, char *argv[]) {
       exit(0);
     }
 
-    if (_strcmpi(argv[i], "-in") == 0) {
+    if (_stricmp(argv[i], "-in") == 0) {
       input = argv[++i];
-    } else if (_strcmpi(argv[i], "-out") == 0) {
+    } else if (_stricmp(argv[i], "-out") == 0) {
       output = argv[++i];
-    } else if (_strcmpi(argv[i], "-p") == 0) {
+    } else if (_stricmp(argv[i], "-p") == 0) {
       password = argv[++i];
     }
     ++i;
