@@ -340,7 +340,8 @@ EXPORTED int ff_get_audio_volume(const char *filename, const char *password, int
   }
   // Open the input file
   if (avformat_open_input(&fmt_ctx, filename, NULL, NULL) != 0) {
-    return AVERROR(EINVAL);
+    ret = AVERROR(EINVAL);
+    goto end;
   }
 
   ret = _get_audio_volume(fmt_ctx, start, duration, max_volume, mean_volume);
@@ -348,11 +349,12 @@ EXPORTED int ff_get_audio_volume(const char *filename, const char *password, int
 end:
   avformat_close_input(&fmt_ctx);
 
-  if  (avio_ctx) {
+  if (avio_ctx) {
     av_freep(&avio_ctx->buffer);
     avio_context_free(&avio_ctx);
   }
 
+  delete io;
   return ret;
 }
 

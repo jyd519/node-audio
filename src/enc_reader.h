@@ -60,7 +60,7 @@ public:
       _reader = nullptr;
     }
   }
-  ~EncryptReader() {
+  virtual ~EncryptReader() {
     if (_reader) {
       enc_reader_close(_reader);
     }
