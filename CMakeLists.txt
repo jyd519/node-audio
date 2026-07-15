@@ -106,6 +106,7 @@ if(ENABLE_FFMPEG)
     src/combine.cc
     src/buffer_io.c
     src/get_volume.cc
+    src/check_av.cc
     src/metatags.cc
     src/encrypt/joye_writer.c
     src/encrypt/joye_reader.c

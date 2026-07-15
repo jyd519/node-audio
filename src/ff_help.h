@@ -50,6 +50,13 @@ EXPORTED int ff_get_audio_volume_buffer(const uint8_t *buf, int buf_size, int64_
 EXPORTED int ff_get_audio_volume_callback(read_packet_t read_packet, int64_t start,
                                  int64_t duration, float *max_volume,
                                  float *mean_volume, void *ctx);
+
+EXPORTED int ff_check_av(const char *filename, const char *password,
+                         double max_duration,
+                         int *has_video, int *has_audio,
+                         double *duration,
+                         double *black_total, double *freeze_total,
+                         double *silence_total);
 #ifndef EXPORT_AVHELP_API
 static const char *get_level_str(int level) {
   switch (level) {

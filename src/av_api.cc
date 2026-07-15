@@ -359,6 +359,63 @@ Napi::Value fixwebmfileAsync(const Napi::CallbackInfo &info) {
   return deferred.Promise();
 }
 
+Napi::Value check_av(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1) {
+    Napi::TypeError::New(env, "Expected string: input file path").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  if (!info[0].IsString()) {
+    Napi::TypeError::New(env, "First argument must be a string").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::string filepath = info[0].As<Napi::String>().Utf8Value();
+  std::string password;
+  double max_duration = 0;
+
+  if (info.Length() > 1 && info[1].IsObject()) {
+    Napi::Object opts = info[1].As<Napi::Object>();
+    if (opts.Has("password")) {
+      password = opts.Get("password").As<Napi::String>().Utf8Value();
+    }
+    if (opts.Has("duration")) {
+      max_duration = opts.Get("duration").As<Napi::Number>().DoubleValue();
+    }
+  }
+
+  int has_video = 0, has_audio = 0;
+  double duration = 0, black_total = 0, freeze_total = 0, silence_total = 0;
+
+  int r = ff_check_av(filepath.c_str(), password.c_str(), max_duration,
+                      &has_video, &has_audio, &duration,
+                      &black_total, &freeze_total, &silence_total);
+
+  double black_ratio = (duration > 0) ? black_total / duration : 0;
+  double freeze_ratio = (duration > 0) ? freeze_total / duration : 0;
+  double silence_ratio = (duration > 0) ? silence_total / duration : 0;
+
+  bool video_normal = !has_video || (black_ratio < 0.5 && freeze_ratio < 0.5);
+  bool audio_normal = !has_audio || (silence_ratio < 0.8);
+
+  Napi::Object result = Napi::Object::New(env);
+  result.Set("status", Napi::Number::New(env, r));
+  result.Set("duration", Napi::Number::New(env, duration));
+  result.Set("has_video", Napi::Boolean::New(env, has_video));
+  result.Set("has_audio", Napi::Boolean::New(env, has_audio));
+  result.Set("video_normal", Napi::Boolean::New(env, video_normal));
+  result.Set("audio_normal", Napi::Boolean::New(env, audio_normal));
+  result.Set("black_total", Napi::Number::New(env, black_total));
+  result.Set("freeze_total", Napi::Number::New(env, freeze_total));
+  result.Set("silence_total", Napi::Number::New(env, silence_total));
+  result.Set("black_ratio", Napi::Number::New(env, black_ratio));
+  result.Set("freeze_ratio", Napi::Number::New(env, freeze_ratio));
+  result.Set("silence_ratio", Napi::Number::New(env, silence_ratio));
+
+  return result;
+}
+
 Napi::Value getMetaTags(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 

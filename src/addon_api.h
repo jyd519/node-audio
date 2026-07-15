@@ -17,4 +17,5 @@ Napi::Value combine(const Napi::CallbackInfo &info);
 Napi::Value fixwebmfile(const Napi::CallbackInfo &info);
 Napi::Value fixwebmfileAsync(const Napi::CallbackInfo &info);
 Napi::Value getMetaTags(const Napi::CallbackInfo& info);
+Napi::Value check_av(const Napi::CallbackInfo& info);
 #endif
