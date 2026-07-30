@@ -26,7 +26,7 @@ function parseArgs() {
   return result;
 }
 
-function main() {
+async function main() {
   const { files, password, duration } = parseArgs();
   if (files.length === 0) {
     console.log("用法: node test_check_av.js <文件路径...> [--password <密码>] [--duration <秒>]");
@@ -49,7 +49,7 @@ function main() {
     const opts = {};
     if (password) opts.password = password;
     if (duration > 0) opts.duration = duration;
-    const r = addon.check_av(file, opts);
+    const r = await addon.check_av(file, opts);
 
     console.log(`状态:     ${r.status === 0 ? "成功" : "失败(" + r.status + ")"}`);
     console.log(`时长:     ${r.duration.toFixed(2)}s`);
@@ -74,4 +74,4 @@ function main() {
   }
 }
 
-main();
+main().catch(console.error);
