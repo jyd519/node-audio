@@ -15,6 +15,11 @@
 #define _ftelli64 ftello64
 #endif
 
+#ifdef __APPLE__
+#define _ftelli64 ftello
+#define _fseeki64 fseeko
+#endif
+
 #define SIG_LENGTH 4
 #define IV_LENGTH 16
 #define LENGTH_LENGTH 8

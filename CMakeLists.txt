@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.27)
+cmake_minimum_required(VERSION 3.28)
 
 set(ENABLE_SAMPLE_PROGRAMS OFF CACHE BOOL "")
 
@@ -154,6 +154,12 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE BUILD_DLL
 target_include_directories(${PROJECT_NAME} PRIVATE src ${OPENSSL_CRYPTO_INCLUDE_DIR})
 if (ENABLE_FFMPEG)
   target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto ${CMAKE_JS_LIB})
+  if (APPLE)
+    set(FFMEPG_COMPONENTS ffmpeg::avutil ffmpeg::swscale ffmpeg::swresample
+        ffmpeg::postproc ffmpeg::avcodec ffmpeg::avformat ffmpeg::avfilter ffmpeg::avdevice)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${FFMEPG_COMPONENTS}) 
+    target_link_libraries(ffprobe PRIVATE ${FFMEPG_COMPONENTS}) 
+  endif()
 else()
   target_include_directories(${PROJECT_NAME} PRIVATE libwebm src)
   target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB} webm)
@@ -202,6 +208,8 @@ if(BUILD_WEBM_DLL)
     add_library(${WEBMDLL} SHARED
         "src/webm_muxer.cc" "src/webvtt/vttreader.cc" "src/webvtt/webvttparser.cc"
         "src/sample_muxer_metadata.cc")
+
+    target_include_directories(${WEBMDLL} PRIVATE libwebm src)
     target_link_libraries(${WEBMDLL} PRIVATE webm)
   endif()
 
@@ -251,22 +259,26 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${BIN_DIR}/)
 
 if(ENABLE_FFMPEG)
-  if(WIN32)
-    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe"
-         "$ENV{FFMPEG_ROOT}/bin/*.dll")
-  elseif(APPLE)
-    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/*")
+
+  if(APPLE)
   else()
-    file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/lib*.so*")
+    if(WIN32)
+      file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/bin/*.exe"
+           "$ENV{FFMPEG_ROOT}/bin/*.dll")
+    elseif(APPLE)
+      file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/*")
+    else()
+      file(GLOB FFMPEG_BIN_FILES "$ENV{FFMPEG_ROOT}/lib/lib*.so*")
+    endif()
+
+    message(INFO ">>> COPY FFmpeg shared files: ${FFMPEG_BIN_FILES}")
+
+    add_custom_command(
+      TARGET ${PROJECT_NAME}
+      POST_BUILD
+      COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
+      COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} ${BIN_DIR})
   endif()
-
-  message(INFO ">>> COPY FFmpeg shared files: ${FFMPEG_BIN_FILES}")
-
-  add_custom_command(
-    TARGET ${PROJECT_NAME}
-    POST_BUILD
-    COMMAND
-      ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} $<TARGET_FILE_DIR:${PROJECT_NAME}>
-    COMMAND
-      ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_BIN_FILES} ${BIN_DIR})
 endif()

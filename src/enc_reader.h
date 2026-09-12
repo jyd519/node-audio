@@ -11,6 +11,11 @@
 #if defined(__linux__)
 #define _fseeki64 fseeko64
 #endif
+
+#ifdef __APPLE__
+#define _fseeki64 fseeko
+#endif
+
 #include "avcpp/format.h"
 #include "avcpp/ffmpeg.h"
 #include "avcpp/formatcontext.h"

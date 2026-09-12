@@ -1,5 +1,5 @@
 [requires]
-#ffmpeg/6.1.1
+ffmpeg/6.1.1
 openssl/3.5.4
 #fmt/11.0.2
 

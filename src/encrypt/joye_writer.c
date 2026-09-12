@@ -13,6 +13,11 @@
 #define _ftelli64 ftello64
 #endif
 
+#ifdef __APPLE__
+#define _ftelli64 ftello
+#define _fseeki64 fseeko
+#endif
+
 /* --- Constants replicated from Go implementation --- */
 #define FILE_SIG "JOYE"
 #define ENC_VERSION 1

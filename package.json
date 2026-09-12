@@ -23,7 +23,7 @@
   ],
   "cmake-js": {
     "runtime": "node",
-    "runtimeVersion": "16.5.0"
+    "runtimeVersion": "18.20.3"
   },
   "dependencies": {
     "cmake-js": "^7.3.0",

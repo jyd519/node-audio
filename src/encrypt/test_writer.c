@@ -7,6 +7,9 @@
 #if defined(__linux__)
 #define _stricmp strcasecmp
 #endif
+#if defined(__APPLE__)
+#define _stricmp strcasecmp
+#endif
 
 static const char *input = NULL;
 static const char *output = NULL;

@@ -61,7 +61,7 @@ mac-arm64:
 	conan install . -of build/deps-arm64 --build=missing -s arch=armv8
 	cmake-js rebuild \
 		--CDCMAKE_TOOLCHAIN_FILE=`pwd`/build/deps-arm64/conan_toolchain.cmake \
-		--CDENABLE_FFMPEG=off \
+		--CDENABLE_FFMPEG=ON \
 		-a arm64 -O ./out/arm64
 
 
@@ -69,15 +69,17 @@ mac-x64:
 	conan install . -of build/deps-x64 --build=missing -s arch=x86_64
 	cmake-js rebuild \
 		--CDCMAKE_TOOLCHAIN_FILE=`pwd`/build/deps-x64/conan_toolchain.cmake \
-		--CDENABLE_FFMPEG=off \
+		--CDENABLE_FFMPEG=ON \
 		-a x64 -O ./out/x64
 
 
 mac-deploy:
-	scp -r ./out/x64/Release/audio.node  root@172.16.21.222:/var/ata/joytest/DEV/osx/audio-x64.node
-	scp -r ./out/arm64/Release/audio.node  root@172.16.21.222:/var/ata/joytest/DEV/osx/audio-arm64.node
-	scp -r ./out/x64/Release/libwebm.dylib root@172.16.21.222:/var/ata/joytest/DEV/osx/libwebm-x64.dylib
-	scp -r ./out/arm64/Release/libwebm.dylib  root@172.16.21.222:/var/ata/joytest/DEV/osx/libwebm-arm64.dylib
+	strip -x -S ./bin/x64/*.node 
+	strip -x -S ./bin/arm64/*.node 
+	scp -r ./bin/x64/audio.node  root@172.16.21.222:/var/ata/joytest/DEV/osx/audio-x64.node
+	scp -r ./bin/x64/audio-noffmpeg.node  root@172.16.21.222:/var/ata/joytest/DEV/osx/audio-noffmpeg-x64.node
+	scp -r ./bin/arm64/audio.node  root@172.16.21.222:/var/ata/joytest/DEV/osx/audio-arm64.node
+	scp -r ./bin/arm64/audio-noffmpeg.node  root@172.16.21.222:/var/ata/joytest/DEV/osx/audio-noffmpeg-arm64.node
 
 mac-ffmpeg:
 	tar --exclude=libwebm.dylib --exclude=audio.node -cvJf ffmpeg-darwin-x64.tar.xz -C out/x64/Release/ .
