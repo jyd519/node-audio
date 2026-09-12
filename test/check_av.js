@@ -65,6 +65,7 @@ async function main() {
 
     if (r.has_audio) {
       console.log(`静音时长: ${r.silence_total.toFixed(2)}s (${(r.silence_ratio * 100).toFixed(1)}%)`);
+      console.log(`平均音量: ${r.mean_volume.toFixed(1)} dB`);
       console.log(`音频正常: ${r.audio_normal}`);
     }
 

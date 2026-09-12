@@ -18,9 +18,12 @@ extern "C" {
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <assert.h>
 
 #include "ff_help.h"
 #include "enc_reader.h"
+
+#define CHECK_AV_MAX_DB 91
 
 struct CheckAVResult {
   int has_video;
@@ -29,7 +32,62 @@ struct CheckAVResult {
   double black_total;
   double freeze_total;
   double silence_total;
+  double mean_volume;
 };
+
+typedef struct VolDetectCtx {
+  uint64_t histogram[0x10001];
+} VolDetectCtx;
+
+static inline double vol_logdb(uint64_t v) {
+  double d = v / (double)(0x8000 * 0x8000);
+  if (!v)
+    return CHECK_AV_MAX_DB;
+  return -log10(d) * 10;
+}
+
+static void vol_process_frame(VolDetectCtx *vd, AVFrame *samples) {
+  int nb_samples = samples->nb_samples;
+#if LIBAVCODEC_VERSION_MAJOR > 58
+  int nb_channels = samples->ch_layout.nb_channels;
+#else
+  int nb_channels = av_get_channel_layout_nb_channels(samples->channel_layout);
+#endif
+  int nb_planes = nb_channels;
+  int plane, i;
+  int16_t *pcm;
+
+  if (!av_sample_fmt_is_planar((enum AVSampleFormat)samples->format)) {
+    nb_samples *= nb_channels;
+    nb_planes = 1;
+  }
+  for (plane = 0; plane < nb_planes; plane++) {
+    pcm = (int16_t *)samples->extended_data[plane];
+    for (i = 0; i < nb_samples; i++)
+      vd->histogram[pcm[i] + 0x8000]++;
+  }
+}
+
+static double vol_get_mean(VolDetectCtx *vd) {
+  int i, shift;
+  uint64_t nb_samples = 0, power = 0, nb_samples_shift = 0;
+
+  for (i = 0; i < 0x10000; i++)
+    nb_samples += vd->histogram[i];
+  if (!nb_samples)
+    return -CHECK_AV_MAX_DB;
+
+  shift = av_log2(nb_samples >> 33);
+  for (i = 0; i < 0x10000; i++) {
+    nb_samples_shift += vd->histogram[i] >> shift;
+    power += (i - 0x8000) * (i - 0x8000) * (vd->histogram[i] >> shift);
+  }
+  if (!nb_samples_shift)
+    return -CHECK_AV_MAX_DB;
+  power = (power + nb_samples_shift / 2) / nb_samples_shift;
+  assert(power <= 0x8000 * 0x8000);
+  return -vol_logdb(power);
+}
 
 static double get_meta_double(AVFrame *frame, const char *key) {
   AVDictionaryEntry *e = av_dict_get(frame->metadata, key, NULL, 0);
@@ -104,17 +162,21 @@ static int build_audio_filter_graph(AVFilterGraph *graph, AVStream *stream,
                                     AVFilterContext **sink_ctx) {
   int ret;
   char ch_layout[64];
+  AVRational time_base;
   AVFilterContext *abuffer_ctx = NULL;
   AVFilterContext *abuffersink_ctx = NULL;
+  AVFilterContext *aformat_ctx = NULL;
   AVFilterContext *silencedetect_ctx = NULL;
 
   const AVFilter *abuffer = avfilter_get_by_name("abuffer");
   const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
+  const AVFilter *aformat = avfilter_get_by_name("aformat");
   const AVFilter *silencedetect = avfilter_get_by_name("silencedetect");
 
   abuffer_ctx = avfilter_graph_alloc_filter(graph, abuffer, "in");
   abuffersink_ctx = avfilter_graph_alloc_filter(graph, abuffersink, "out");
-  if (!abuffer_ctx || !abuffersink_ctx) {
+  aformat_ctx = avfilter_graph_alloc_filter(graph, aformat, "aformat");
+  if (!abuffer_ctx || !abuffersink_ctx || !aformat_ctx) {
     ret = AVERROR(ENOMEM);
     goto end;
   }
@@ -132,6 +194,10 @@ static int build_audio_filter_graph(AVFilterGraph *graph, AVStream *stream,
              AV_OPT_SEARCH_CHILDREN);
   av_opt_set_int(abuffer_ctx, "sample_rate", stream->codecpar->sample_rate,
                  AV_OPT_SEARCH_CHILDREN);
+  time_base = av_make_q(1, stream->codecpar->sample_rate);
+  ret = av_opt_set_q(abuffer_ctx, "time_base", time_base,
+                     AV_OPT_SEARCH_CHILDREN);
+  if (ret < 0) goto end;
 
   ret = avfilter_init_str(abuffer_ctx, NULL);
   if (ret < 0) goto end;
@@ -139,12 +205,19 @@ static int build_audio_filter_graph(AVFilterGraph *graph, AVStream *stream,
   ret = avfilter_init_str(abuffersink_ctx, NULL);
   if (ret < 0) goto end;
 
+  av_opt_set(aformat_ctx, "sample_fmts", "s16|s16p", AV_OPT_SEARCH_CHILDREN);
+  ret = avfilter_init_str(aformat_ctx, NULL);
+  if (ret < 0) goto end;
+
   ret = avfilter_graph_create_filter(&silencedetect_ctx, silencedetect,
-                                     "silencedetect", "n=-50dB:d=0.5",
+                                     "silencedetect", "noise=-50dB:d=2",
                                      NULL, graph);
   if (ret < 0) goto end;
 
-  ret = avfilter_link(abuffer_ctx, 0, silencedetect_ctx, 0);
+  // abuffer -> aformat(s16) -> silencedetect -> abuffersink
+  ret = avfilter_link(abuffer_ctx, 0, aformat_ctx, 0);
+  if (ret < 0) goto end;
+  ret = avfilter_link(aformat_ctx, 0, silencedetect_ctx, 0);
   if (ret < 0) goto end;
   ret = avfilter_link(silencedetect_ctx, 0, abuffersink_ctx, 0);
   if (ret < 0) goto end;
@@ -157,6 +230,15 @@ static int build_audio_filter_graph(AVFilterGraph *graph, AVStream *stream,
 
 end:
   return ret;
+}
+
+static void prepare_audio_frame(AVFrame *frame, AVStream *stream) {
+  AVRational time_base = av_make_q(1, frame->sample_rate);
+
+  if (frame->pts != AV_NOPTS_VALUE)
+    frame->pts = av_rescale_q(frame->pts, stream->time_base, time_base);
+  frame->duration = frame->nb_samples;
+  frame->time_base = time_base;
 }
 
 static int _check_av(AVFormatContext *fmt_ctx, double max_duration,
@@ -173,8 +255,11 @@ static int _check_av(AVFormatContext *fmt_ctx, double max_duration,
   AVPacket *packet = NULL;
   int64_t video_end_pts = AV_NOPTS_VALUE;
   int64_t audio_end_pts = AV_NOPTS_VALUE;
+  VolDetectCtx *vd = NULL;
+  double last_silence_start = -1;
 
   memset(result, 0, sizeof(CheckAVResult));
+  result->mean_volume = -CHECK_AV_MAX_DB;
 
   ret = avformat_find_stream_info(fmt_ctx, NULL);
   if (ret < 0) return ret;
@@ -218,6 +303,7 @@ static int _check_av(AVFormatContext *fmt_ctx, double max_duration,
     video_codec_ctx = avcodec_alloc_context3(video_codec);
     if (!video_codec_ctx) { ret = AVERROR(ENOMEM); goto end; }
     avcodec_parameters_to_context(video_codec_ctx, video_stream->codecpar);
+    video_codec_ctx->pkt_timebase = video_stream->time_base;
     ret = avcodec_open2(video_codec_ctx, video_codec, NULL);
     if (ret < 0) goto end;
 
@@ -239,6 +325,7 @@ static int _check_av(AVFormatContext *fmt_ctx, double max_duration,
     audio_codec_ctx = avcodec_alloc_context3(audio_codec);
     if (!audio_codec_ctx) { ret = AVERROR(ENOMEM); goto end; }
     avcodec_parameters_to_context(audio_codec_ctx, audio_stream->codecpar);
+    audio_codec_ctx->pkt_timebase = audio_stream->time_base;
     ret = avcodec_open2(audio_codec_ctx, audio_codec, NULL);
     if (ret < 0) goto end;
 
@@ -250,6 +337,8 @@ static int _check_av(AVFormatContext *fmt_ctx, double max_duration,
       av_log(NULL, AV_LOG_WARNING, "check_av: audio filter graph init failed, skip audio check");
       avfilter_graph_free(&audio_graph);
       audio_graph = NULL;
+    } else {
+      vd = (VolDetectCtx *)av_mallocz(sizeof(VolDetectCtx));
     }
   }
 
@@ -297,6 +386,7 @@ static int _check_av(AVFormatContext *fmt_ctx, double max_duration,
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
         if (ret < 0) goto end;
 
+        prepare_audio_frame(frame, audio_stream);
         ret = av_buffersrc_add_frame(audio_src, frame);
         if (ret < 0) { av_frame_unref(frame); break; }
 
@@ -305,8 +395,15 @@ static int _check_av(AVFormatContext *fmt_ctx, double max_duration,
           if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
           if (ret < 0) goto end;
 
+          double ss = get_meta_double(frame, "lavfi.silence_start");
+          if (ss > 0 || av_dict_get(frame->metadata, "lavfi.silence_start", NULL, 0))
+            last_silence_start = ss;
           double sd = get_meta_double(frame, "lavfi.silence_duration");
-          if (sd > 0) result->silence_total += sd;
+          if (sd > 0) {
+            result->silence_total += sd;
+            last_silence_start = -1;
+          }
+          if (vd) vol_process_frame(vd, frame);
 
           av_frame_unref(frame);
         }
@@ -341,19 +438,47 @@ static int _check_av(AVFormatContext *fmt_ctx, double max_duration,
   if (audio_codec_ctx && audio_graph) {
     avcodec_send_packet(audio_codec_ctx, NULL);
     while (avcodec_receive_frame(audio_codec_ctx, frame) >= 0) {
+      prepare_audio_frame(frame, audio_stream);
       av_buffersrc_add_frame(audio_src, frame);
       while (av_buffersink_get_frame(audio_sink, frame) >= 0) {
+        double ss = get_meta_double(frame, "lavfi.silence_start");
+        if (ss > 0 || av_dict_get(frame->metadata, "lavfi.silence_start", NULL, 0))
+          last_silence_start = ss;
         double sd = get_meta_double(frame, "lavfi.silence_duration");
-        if (sd > 0) result->silence_total += sd;
+        if (sd > 0) {
+          result->silence_total += sd;
+          last_silence_start = -1;
+        }
+        if (vd) vol_process_frame(vd, frame);
         av_frame_unref(frame);
       }
     }
     av_buffersrc_add_frame(audio_src, NULL);
     while (av_buffersink_get_frame(audio_sink, frame) >= 0) {
+      double ss = get_meta_double(frame, "lavfi.silence_start");
+      if (ss > 0 || av_dict_get(frame->metadata, "lavfi.silence_start", NULL, 0))
+        last_silence_start = ss;
       double sd = get_meta_double(frame, "lavfi.silence_duration");
-      if (sd > 0) result->silence_total += sd;
+      if (sd > 0) {
+        result->silence_total += sd;
+        last_silence_start = -1;
+      }
+      if (vd) vol_process_frame(vd, frame);
       av_frame_unref(frame);
     }
+  }
+
+  if (last_silence_start >= 0 && result->duration > last_silence_start)
+    result->silence_total += result->duration - last_silence_start;
+
+  if (result->silence_total < 0)
+    result->silence_total = 0;
+  if (result->silence_total > result->duration)
+    result->silence_total = result->duration;
+
+  if (vd) {
+    result->mean_volume = vol_get_mean(vd);
+    av_free(vd);
   }
 
   if (ret == AVERROR_EOF)
@@ -374,7 +499,7 @@ EXPORTED int ff_check_av(const char *filename, const char *password,
                          int *has_video, int *has_audio,
                          double *duration,
                          double *black_total, double *freeze_total,
-                         double *silence_total) {
+                         double *silence_total, double *mean_volume) {
   AVFormatContext *fmt_ctx = NULL;
   AVIOContext *avio_ctx = NULL;
   unsigned char *avio_ctx_buffer = NULL;
@@ -417,6 +542,7 @@ EXPORTED int ff_check_av(const char *filename, const char *password,
   *black_total = result.black_total;
   *freeze_total = result.freeze_total;
   *silence_total = result.silence_total;
+  *mean_volume = result.mean_volume;
 
 end:
   avformat_close_input(&fmt_ctx);

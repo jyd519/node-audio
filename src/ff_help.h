@@ -56,7 +56,7 @@ EXPORTED int ff_check_av(const char *filename, const char *password,
                          int *has_video, int *has_audio,
                          double *duration,
                          double *black_total, double *freeze_total,
-                         double *silence_total);
+                         double *silence_total, double *mean_volume);
 #ifndef EXPORT_AVHELP_API
 static const char *get_level_str(int level) {
   switch (level) {

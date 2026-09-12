@@ -369,6 +369,7 @@ private:
   int status = 0;
   int has_video = 0, has_audio = 0;
   double duration = 0, black_total = 0, freeze_total = 0, silence_total = 0;
+  double mean_volume = -91;
 
 public:
   CheckAVWorker(const std::string &filepath, const std::string &password,
@@ -379,7 +380,8 @@ public:
   void Execute() override {
     status = ff_check_av(filepath.c_str(), password.c_str(), max_duration,
                          &has_video, &has_audio, &duration,
-                         &black_total, &freeze_total, &silence_total);
+                         &black_total, &freeze_total, &silence_total,
+                         &mean_volume);
   }
 
   void OnOK() override {
@@ -389,7 +391,7 @@ public:
     double silence_ratio = (duration > 0) ? silence_total / duration : 0;
 
     bool video_normal = !has_video || (black_ratio < 0.5 && freeze_ratio < 0.5);
-    bool audio_normal = !has_audio || (silence_ratio < 0.8);
+    bool audio_normal = !has_audio || (silence_ratio < 0.8 && mean_volume > -50);
 
     Napi::Object result = Napi::Object::New(env);
     result.Set("status", Napi::Number::New(env, status));
@@ -404,6 +406,7 @@ public:
     result.Set("black_ratio", Napi::Number::New(env, black_ratio));
     result.Set("freeze_ratio", Napi::Number::New(env, freeze_ratio));
     result.Set("silence_ratio", Napi::Number::New(env, silence_ratio));
+    result.Set("mean_volume", Napi::Number::New(env, mean_volume));
 
     deferred.Resolve(result);
   }
